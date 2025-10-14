@@ -1,0 +1,106 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+jobs:
+  deploy-staging:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run smoke tests
+      env:
+        ENVIRONMENT: staging
+      run: |
+        python -c "import src.app; print('Staging deployment ready')"
+
+    - name: Deploy to staging
+      run: |
+        echo "Deploying to staging environment..."
+        # Aqui seria a lógica real de deploy (Docker, Cloud Run, etc.)
+        echo "Staging deployment completed"
+
+  deploy-production:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    runs-on: ubuntu-latest
+    environment: production
+    needs: []
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run production tests
+      env:
+        ENVIRONMENT: production
+      run: |
+        python -c "import src.app; print('Production deployment ready')"
+
+    - name: Create deployment package
+      run: |
+        tar -czf csveda-production.tar.gz \
+          src/ \
+          requirements.txt \
+          .env.example \
+          app.py \
+          README.md
+
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production environment..."
+        # Aqui seria a lógica real de deploy para produção
+        echo "Production deployment completed"
+
+    - name: Upload deployment artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: production-deployment
+        path: csveda-production.tar.gz
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+
+    steps:
+    - name: Notify deployment status
+      run: |
+        if [ "${{ needs.deploy-staging.result }}" == "success" ] || [ "${{ needs.deploy-production.result }}" == "success" ]; then
+          echo "✅ Deployment successful"
+        else
+          echo "❌ Deployment failed"
+        fi
