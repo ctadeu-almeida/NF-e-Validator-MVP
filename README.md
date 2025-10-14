@@ -1,14 +1,37 @@
-# NF-e Validator MVP - Setor Sucroalcooleiro
+# Sistema EDA + NF-e Validator
 
-**Versão:** 1.0.0-mvp
-**Setor:** Sucroalcooleiro (Açúcar)
-**Estados:** SP + PE
+**Versão:** 1.0.0
+**Módulos:**
+- **CSVEDA** - Análise Exploratória de Dados com IA (Gemini 2.5)
+- **NF-e Validator** - Validação Fiscal Automatizada para Setor Sucroalcooleiro
 
-Sistema de validação fiscal automatizada para NF-e do setor sucroalcooleiro, com foco em detecção de tributação indevida e suporte a IA.
+Sistema integrado que combina análise exploratória de dados CSV com validação fiscal automatizada de NF-e, utilizando agentes de IA com Google Gemini 2.5.
 
 ---
 
-## 📋 Escopo do MVP
+## 🎯 Visão Geral
+
+Este sistema oferece **duas funcionalidades complementares** em uma única aplicação Streamlit:
+
+### 📊 Módulo CSVEDA (Original)
+- Análise exploratória de dados CSV/ZIP
+- Agentes de IA especializados com Google Gemini 2.5
+- Geração automática de gráficos e insights
+- Pipeline de processamento de dados
+- Mesclagem de múltiplos arquivos CSV
+- Chat inteligente para análise de dados
+
+### 🧾 Módulo NF-e Validator (Complementar)
+- Validação fiscal automatizada de Notas Fiscais Eletrônicas
+- Foco no setor sucroalcooleiro (açúcar)
+- Validações federais e estaduais (SP + PE)
+- Agente IA para classificação NCM (opcional)
+- Relatórios detalhados em JSON e Markdown
+- Detecção de tributação indevida
+
+---
+
+## 📋 Escopo - NF-e Validator
 
 ### ✅ Validações Implementadas
 
@@ -26,8 +49,9 @@ Sistema de validação fiscal automatizada para NF-e do setor sucroalcooleiro, c
 
 **Inteligência Artificial:**
 - ✅ Agente LangChain ReAct para classificação NCM
-- ✅ Google Gemini 2.0 Flash
+- ✅ Google Gemini 2.5 Pro (atualizado)
 - ✅ Raciocínio explicável (reasoning trace)
+- ✅ Reutilização automática da API key do EDA
 
 ---
 
@@ -52,11 +76,11 @@ src/
 ### Stack Tecnológico
 
 - **Python 3.10+**
-- **SQLite** (rules.db - 27 regras fiscais)
-- **LangChain** (ReAct agent pattern)
-- **Google Gemini 2.0** (LLM)
-- **Streamlit** (Interface web)
-- **Pandas** (CSV processing)
+- **SQLite** (rules.db - 27 regras fiscais para NF-e)
+- **LangChain** (ReAct agent pattern para ambos os módulos)
+- **Google Gemini 2.5** (LLM - atualizado)
+- **Streamlit** (Interface web unificada com tabs)
+- **Pandas** (CSV processing completo, sem limites de linhas)
 
 ---
 
@@ -103,7 +127,94 @@ Total de registros: 27
 
 ## 📖 Uso
 
-### 1. Validação via CLI (Testes)
+### Interface Streamlit Unificada
+
+```bash
+streamlit run app.py
+```
+
+Ou use o script helper:
+
+```bash
+python run_streamlit.py
+```
+
+Acesse: **http://localhost:8501**
+
+A aplicação abrirá com **duas tabs**:
+
+---
+
+### 📊 Tab 1: Análise de Dados (EDA)
+
+**Passo a passo:**
+
+1. **Configurar API Gemini** (sidebar):
+   - Insira sua chave da API do Google Gemini
+   - Clique em "🚀 Inicializar Modelo"
+
+2. **Upload de Dados** (sidebar):
+   - Selecione arquivo CSV ou ZIP
+   - Sistema detecta automaticamente o separador (`,`, `;`, `\t`, `|`)
+   - Arquivos ZIP são extraídos e mesclados automaticamente
+   - **Sem limite de linhas** - arquivo completo é processado
+
+3. **Analisar com Agentes** (área principal):
+   - Visualize preview dos dados
+   - Faça perguntas no chat: "Analise a correlação entre variáveis"
+   - Agentes geram gráficos automaticamente
+   - Respostas detalhadas com insights
+
+**Features EDA:**
+- ✅ CSV/ZIP upload com mesclagem automática
+- ✅ Detecção inteligente de separador
+- ✅ Pipeline de normalização de dados
+- ✅ Agentes especializados para análise
+- ✅ Chat com memória contextual
+- ✅ Geração automática de gráficos
+- ✅ Análises estatísticas avançadas
+
+---
+
+### 🧾 Tab 2: Validação de NF-e
+
+**Passo a passo:**
+
+1. **Carregar Base Fiscal** (sidebar):
+   - Clique em "📚 Carregar Base Fiscal"
+   - Sistema carrega 27 regras fiscais do SQLite
+
+2. **(Opcional) Ativar Agente IA para NCM** (sidebar):
+   - Marque "🤖 Usar Agente IA para NCM"
+   - Se já inicializou Gemini no EDA, a chave é reutilizada automaticamente
+   - Caso contrário, insira a chave da API Google
+
+3. **Upload de NF-es** (tab NF-e):
+   - Selecione arquivo CSV com notas fiscais
+   - Clique em "🔍 Validar NF-es"
+   - **Arquivo completo é processado** (sem limites)
+   - Sistema valida todas as NF-es encontradas
+
+4. **Visualizar Resultados**:
+   - **📋 Relatório**: Visualização formatada em Markdown
+   - **📄 JSON**: Estrutura completa para integração
+   - **🤖 Sugestões IA**: Recomendações do agente NCM (se ativado)
+   - **💾 Downloads**: Baixe relatórios em MD ou JSON
+
+**Features NF-e:**
+- ✅ Validação federal (NCM, PIS/COFINS, CFOP, Totais)
+- ✅ Validação estadual (SP + PE)
+- ✅ Agente IA opcional para NCM (reutiliza API do EDA)
+- ✅ Relatórios detalhados (JSON + Markdown)
+- ✅ Impacto financeiro calculado
+- ✅ Múltiplas NF-es em lote
+- ✅ Downloads de relatórios
+
+---
+
+### Validação via CLI (Testes)
+
+Para testar apenas o módulo NF-e sem interface:
 
 ```bash
 python tests/test_integration.py
@@ -123,24 +234,20 @@ TEST SUMMARY
 Passed: 5/5
 ```
 
-### 2. Interface Streamlit
-
-```bash
-python run_streamlit.py
-```
-
-Acesse: **http://localhost:8501**
-
-**Features:**
-- 📤 Upload de CSV
-- 🔍 Validação automática
-- 📊 Dashboard de resultados
-- 🤖 Agente IA (opcional)
-- 💾 Download de relatórios (JSON + Markdown)
-
 ---
 
 ## 📁 Formato CSV
+
+### Para Análise EDA
+
+**Qualquer formato CSV:**
+- Separadores suportados: `,` `;` `\t` `|` (detecção automática)
+- Sem requisitos específicos de colunas
+- Processamento completo sem limites de linhas
+- Suporte a múltiplos arquivos via ZIP
+- Normalização automática de tipos de dados
+
+### Para Validação de NF-e
 
 **Colunas obrigatórias:**
 
@@ -445,6 +552,36 @@ python tests/test_integration.py
 
 ---
 
+## 🔄 Integração dos Módulos
+
+### Características da Integração
+
+**Independência:**
+- Cada módulo funciona independentemente
+- NF-e Validator não requer inicialização do EDA
+- EDA funciona normalmente sem carregar base fiscal
+
+**Compartilhamento Inteligente:**
+- ✅ API Key do Gemini reutilizada entre módulos
+- ✅ Mesmo ambiente Streamlit
+- ✅ Interface unificada com tabs
+- ✅ Sessão compartilhada (mas estados separados)
+
+**Processamento de Arquivos:**
+- ✅ **Leitura completa** sem limites de linhas em ambos os módulos
+- ✅ EDA: múltiplos CSVs via ZIP com mesclagem automática
+- ✅ NF-e: processamento em lote de múltiplas notas
+- ✅ Detecção automática de formato (EDA)
+- ✅ Normalização específica por domínio
+
+**Agentes de IA:**
+- EDA: Agentes especializados em análise exploratória
+- NF-e: Agente opcional para classificação NCM
+- Ambos usam Google Gemini 2.5 Pro
+- ReAct pattern (Reasoning + Acting)
+
+---
+
 ## 🛣️ Roadmap Pós-MVP
 
 ### Fase 2 (Expansão)
@@ -507,4 +644,19 @@ MIT License
 
 **Desenvolvido para o setor sucroalcooleiro brasileiro** ❤️
 
-*MVP Version 1.0.0 - Outubro 2025*
+*Version 1.0.0 - Outubro 2025*
+
+---
+
+## 📝 Changelog
+
+### v1.0.0 (Atual)
+- ✅ Integração completa CSVEDA + NF-e Validator
+- ✅ Interface unificada com tabs independentes
+- ✅ Atualização para Google Gemini 2.5 Pro
+- ✅ Remoção de limites de linhas no processamento CSV
+- ✅ Reutilização automática de API key entre módulos
+- ✅ SQLite com thread safety para Streamlit (`check_same_thread=False`)
+- ✅ Suporte a Windows (temp directory cross-platform)
+- ✅ Processamento completo de arquivos (sem `max_rows`)
+- ✅ Documentação atualizada com guia de uso integrado

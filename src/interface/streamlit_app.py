@@ -233,7 +233,11 @@ def main():
             st.success(f"Arquivo carregado: {uploaded_file.name}")
 
             # Save to temp file
-            temp_path = Path(f"/tmp/{uploaded_file.name}")
+            import tempfile
+            import os
+            temp_dir = tempfile.gettempdir()
+            temp_path = Path(temp_dir) / uploaded_file.name
+
             with open(temp_path, 'wb') as f:
                 f.write(uploaded_file.getbuffer())
 
@@ -241,7 +245,7 @@ def main():
             if st.button("🔍 Validar NF-e", type="primary"):
                 with st.spinner("Processando..."):
                     try:
-                        # Parse CSV
+                        # Parse CSV completo
                         parser = NFeCSVParser()
                         nfes = parser.parse_csv(str(temp_path))
 

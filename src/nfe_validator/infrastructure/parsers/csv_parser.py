@@ -114,7 +114,7 @@ class NFeCSVParser:
         self.parse_errors = []
 
         try:
-            # Ler CSV
+            # Ler CSV completo (sem limite de linhas)
             df = pd.read_csv(csv_path, dtype=str, encoding='utf-8')
         except UnicodeDecodeError:
             # Tentar encoding alternativo

@@ -32,6 +32,19 @@ try:
 except ImportError:
     MODERN_CHAT_AVAILABLE = False
 
+# Importar NF-e Validator (novo módulo)
+try:
+    from nfe_validator.infrastructure.parsers.csv_parser import NFeCSVParser
+    from nfe_validator.domain.services.federal_validators import (
+        NCMValidator, PISCOFINSValidator, CFOPValidator, TotalsValidator
+    )
+    from nfe_validator.domain.services.state_validators import SPValidator, PEValidator
+    from nfe_validator.infrastructure.validators.report_generator import ReportGenerator
+    from repositories.fiscal_repository import FiscalRepository
+    NFE_VALIDATOR_AVAILABLE = True
+except ImportError:
+    NFE_VALIDATOR_AVAILABLE = False
+
 # Configuração da página Streamlit
 st.set_page_config(
     page_title="Sistema EDA - Análise Exploratória de Dados",
@@ -535,6 +548,284 @@ def load_and_analyze_data(uploaded_file, agent):
                 pass
         return None
 
+def validate_nfe_with_pipeline(nfe, repo, use_ai_agent=False, api_key=None):
+    """
+    Execute full NF-e validation pipeline
+
+    Args:
+        nfe: NFeEntity to validate
+        repo: FiscalRepository
+        use_ai_agent: Enable AI agent for NCM classification
+        api_key: Google API key for agent
+
+    Returns:
+        nfe with validation errors populated
+    """
+    from nfe_validator.domain.entities.nfe_entity import Severity
+
+    # Federal Validators
+    item_validators = [
+        NCMValidator(repo),
+        PISCOFINSValidator(repo),
+        CFOPValidator(repo)
+    ]
+
+    for validator in item_validators:
+        for item in nfe.items:
+            errors = validator.validate(item, nfe)
+            nfe.validation_errors.extend(errors)
+
+    # Totals Validator
+    totals_validator = TotalsValidator(repo)
+    totals_errors = totals_validator.validate(nfe)
+    nfe.validation_errors.extend(totals_errors)
+
+    # State Validators
+    if nfe.emitente.uf == 'SP' or nfe.destinatario.uf == 'SP':
+        sp_validator = SPValidator(repo)
+        for item in nfe.items:
+            errors = sp_validator.validate(item, nfe)
+            nfe.validation_errors.extend(errors)
+
+    if nfe.emitente.uf == 'PE' or nfe.destinatario.uf == 'PE':
+        pe_validator = PEValidator(repo)
+        for item in nfe.items:
+            errors = pe_validator.validate(item, nfe)
+            nfe.validation_errors.extend(errors)
+
+    # AI Agent (optional)
+    if use_ai_agent and api_key:
+        try:
+            from agents.ncm_agent import create_ncm_agent
+
+            with st.spinner("Inicializando Agente IA para NCM..."):
+                agent = create_ncm_agent(repo, api_key)
+
+            # Initialize suggestions dict
+            if 'ai_ncm_suggestions' not in st.session_state:
+                st.session_state.ai_ncm_suggestions = {}
+
+            with st.spinner("Classificando NCMs com IA..."):
+                for item in nfe.items:
+                    try:
+                        result = agent.classify_ncm(item.descricao, item.ncm)
+
+                        if result.get('suggested_ncm'):
+                            st.session_state.ai_ncm_suggestions[item.numero_item] = result
+
+                    except Exception as item_error:
+                        st.session_state.ai_ncm_suggestions[item.numero_item] = {
+                            'suggested_ncm': None,
+                            'confidence': 0,
+                            'reasoning': f"Erro: {str(item_error)}",
+                            'is_correct': None,
+                            'error': str(item_error)
+                        }
+
+        except Exception as e:
+            st.warning(f"⚠️ Agente IA não disponível: {str(e)}")
+            st.info("Continuando validação sem agente IA...")
+
+    return nfe
+
+
+def render_nfe_validator_tab():
+    """Render NF-e Validator tab content"""
+    st.subheader("🧾 Validação de Notas Fiscais Eletrônicas")
+    st.markdown("**Validação Fiscal Automatizada - Setor Sucroalcooleiro (Açúcar)**")
+    st.markdown("---")
+
+    # Get repository from session state
+    repo = st.session_state.get('fiscal_repository')
+
+    if repo is None:
+        st.error("❌ Base fiscal não carregada! Configure na barra lateral.")
+        return
+
+    # File uploader for NF-e CSV
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        st.markdown("### 📤 Upload de NF-e")
+        uploaded_nfe_file = st.file_uploader(
+            "Selecione um arquivo CSV com NF-es",
+            type=['csv'],
+            help="Arquivo CSV no formato esperado para validação de NF-e",
+            key="nfe_uploader"
+        )
+
+        if uploaded_nfe_file:
+            st.success(f"Arquivo: {uploaded_nfe_file.name}")
+
+            # Validate button
+            if st.button("🔍 Validar NF-es", type="primary"):
+                with st.spinner("Processando NF-es..."):
+                    try:
+                        # Save to temp file
+                        temp_dir = tempfile.gettempdir()
+                        temp_path = Path(temp_dir) / uploaded_nfe_file.name
+
+                        with open(temp_path, 'wb') as f:
+                            f.write(uploaded_nfe_file.getbuffer())
+
+                        # Parse CSV (full file, no limits)
+                        parser = NFeCSVParser()
+                        nfes = parser.parse_csv(str(temp_path))
+
+                        if not nfes:
+                            st.error("Nenhuma NF-e encontrada no arquivo")
+                            return
+
+                        st.info(f"📋 {len(nfes)} NF-e(s) encontrada(s)")
+
+                        # Validate all NF-es
+                        use_ai = st.session_state.get('use_ncm_agent', False)
+                        api_key = st.session_state.get('ncm_api_key', None)
+
+                        validated_nfes = []
+                        for i, nfe in enumerate(nfes):
+                            with st.spinner(f"Validando NF-e {i+1}/{len(nfes)}..."):
+                                validated_nfe = validate_nfe_with_pipeline(nfe, repo, use_ai, api_key)
+                                validated_nfes.append(validated_nfe)
+
+                        # Store in session state
+                        st.session_state.nfe_results = validated_nfes
+                        st.session_state.nfe_validated = True
+
+                        st.success(f"✅ {len(validated_nfes)} NF-e(s) validada(s)!")
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"Erro ao processar: {str(e)}")
+                        import traceback
+                        with st.expander("🔍 Detalhes do erro"):
+                            st.code(traceback.format_exc())
+
+    with col2:
+        st.markdown("### 📋 Instruções")
+        st.info("""
+        **Como usar:**
+
+        1. Carregue a base fiscal na barra lateral
+        2. (Opcional) Ative o Agente IA para NCM
+        3. Faça upload do CSV com NF-es
+        4. Clique em "Validar NF-es"
+        5. Visualize os resultados abaixo
+
+        **Formato CSV esperado:**
+        - Colunas de identificação: chave_acesso, numero_nfe, serie, data_emissao
+        - Emitente/Destinatário: cnpj, razao_social, uf
+        - Itens: ncm, cfop, valor_total, pis, cofins, etc.
+        """)
+
+    # Results section
+    if st.session_state.get('nfe_validated') and st.session_state.get('nfe_results'):
+        st.markdown("---")
+        st.header("📈 Resultados da Validação")
+
+        nfes = st.session_state.nfe_results
+
+        # Select NF-e to view
+        if len(nfes) > 1:
+            selected_idx = st.selectbox(
+                "Selecione a NF-e para visualizar:",
+                range(len(nfes)),
+                format_func=lambda i: f"NF-e {nfes[i].numero} - {nfes[i].chave_acesso[:10]}..."
+            )
+            nfe = nfes[selected_idx]
+        else:
+            nfe = nfes[0]
+
+        # Summary metrics
+        from nfe_validator.domain.entities.nfe_entity import Severity
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        critical = sum(1 for e in nfe.validation_errors if e.severity == Severity.CRITICAL)
+        error = sum(1 for e in nfe.validation_errors if e.severity == Severity.ERROR)
+        warning = sum(1 for e in nfe.validation_errors if e.severity == Severity.WARNING)
+
+        with col1:
+            st.metric("🔴 Crítico", critical)
+        with col2:
+            st.metric("🟠 Erro", error)
+        with col3:
+            st.metric("🟡 Aviso", warning)
+        with col4:
+            impact = nfe.get_total_financial_impact()
+            st.metric("💰 Impacto", f"R$ {impact:,.2f}")
+
+        # Validation status
+        if critical > 0 or error > 0:
+            st.error("❌ NF-e INVÁLIDA - Requer correção")
+        elif warning > 0:
+            st.warning("⚠️ NF-e VÁLIDA COM AVISOS")
+        else:
+            st.success("✅ NF-e VÁLIDA")
+
+        # Tabs for different views
+        tab_report, tab_json, tab_ai, tab_download = st.tabs([
+            "📋 Relatório",
+            "📄 JSON",
+            "🤖 Sugestões IA",
+            "💾 Downloads"
+        ])
+
+        with tab_report:
+            # Generate Markdown report
+            generator = ReportGenerator()
+            md_report = generator.generate_markdown_report(nfe)
+            st.markdown(md_report, unsafe_allow_html=True)
+
+        with tab_json:
+            # Generate JSON report
+            json_report = generator.generate_json_report(nfe)
+            st.json(json_report)
+
+        with tab_ai:
+            # AI Suggestions (if available)
+            if st.session_state.get('ai_ncm_suggestions'):
+                st.subheader("🤖 Sugestões do Agente IA para NCM")
+
+                for item_num, suggestion in st.session_state.ai_ncm_suggestions.items():
+                    with st.expander(f"Item #{item_num}"):
+                        st.write(f"**NCM Sugerido:** {suggestion.get('suggested_ncm', 'N/A')}")
+                        st.write(f"**Confiança:** {suggestion.get('confidence', 0)}%")
+                        st.write(f"**NCM Correto:** {'❌ Não' if not suggestion.get('is_correct') else '✅ Sim'}")
+
+                        st.markdown("**Raciocínio do Agente:**")
+                        st.code(suggestion.get('reasoning', 'N/A'))
+            else:
+                st.info("Nenhuma sugestão de IA disponível. Ative o Agente IA nas configurações.")
+
+        with tab_download:
+            # Download buttons
+            st.subheader("💾 Baixar Relatórios")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Markdown download
+                md_bytes = md_report.encode('utf-8')
+                st.download_button(
+                    label="📄 Download Markdown",
+                    data=md_bytes,
+                    file_name=f"nfe_{nfe.numero}_report.md",
+                    mime="text/markdown"
+                )
+
+            with col2:
+                # JSON download
+                import json
+                json_bytes = json.dumps(json_report, ensure_ascii=False, indent=2).encode('utf-8')
+                st.download_button(
+                    label="📋 Download JSON",
+                    data=json_bytes,
+                    file_name=f"nfe_{nfe.numero}_report.json",
+                    mime="application/json"
+                )
+
+
 def main():
     """Função principal da aplicação Streamlit"""
     initialize_session_state()
@@ -542,10 +833,18 @@ def main():
     # Cabeçalho principal
     st.markdown("""
     <div class="main-header">
-        <h1>🤖 Sistema EDA - Análise Exploratória de Dados com IA</h1>
-        <p>Análise inteligente de dados CSV com agentes especializados</p>
+        <h1>🤖 Sistema EDA + NF-e Validator</h1>
+        <p>Análise inteligente de dados CSV e Validação Fiscal automatizada</p>
     </div>
     """, unsafe_allow_html=True)
+
+    # Criar tabs para EDA e NF-e Validator
+    if NFE_VALIDATOR_AVAILABLE and st.session_state.get('fiscal_repository') is not None:
+        tab_eda, tab_nfe = st.tabs(["📊 Análise de Dados (EDA)", "🧾 Validação de NF-e"])
+    else:
+        # Se NF-e não disponível, mostrar só EDA
+        tab_eda = st.container()
+        tab_nfe = None
 
     # Sidebar para configurações
     with st.sidebar:
@@ -593,6 +892,58 @@ def main():
                 ✅ <strong>{st.session_state.selected_model.title()} Ativo!</strong>
             </div>
             """, unsafe_allow_html=True)
+
+        # NF-e Validator Settings (independente do EDA)
+        if NFE_VALIDATOR_AVAILABLE:
+            st.markdown("---")
+            st.subheader("🧾 NF-e Validator")
+
+            # Check if fiscal repository is loaded
+            if 'fiscal_repository' not in st.session_state:
+                st.session_state.fiscal_repository = None
+                st.session_state.nfe_validated = False
+                st.session_state.nfe_results = None
+
+            # Load repository button
+            if st.session_state.fiscal_repository is None:
+                if st.button("📚 Carregar Base Fiscal", type="secondary"):
+                    with st.spinner("Carregando base de dados fiscal..."):
+                        try:
+                            st.session_state.fiscal_repository = FiscalRepository()
+                            st.success("✅ Base fiscal carregada!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Erro ao carregar base: {e}")
+            else:
+                st.success("✅ Base fiscal carregada")
+
+                # Show repository stats
+                try:
+                    stats = st.session_state.fiscal_repository.get_statistics()
+                    st.metric("Regras Carregadas", sum(stats.values()))
+                except:
+                    pass
+
+                # Option to use AI agent for NCM classification
+                use_ncm_agent = st.checkbox("🤖 Usar Agente IA para NCM", value=False)
+
+                # If agent enabled, ask for API key (can reuse from Gemini if available)
+                ncm_api_key = None
+                if use_ncm_agent:
+                    # Try to reuse Gemini API key if available
+                    if st.session_state.model_initialized and st.session_state.eda_agent:
+                        ncm_api_key = st.session_state.eda_agent.api_key
+                        st.info("✅ Usando chave da API do Gemini EDA")
+                    else:
+                        ncm_api_key = st.text_input(
+                            "Google API Key para NCM:",
+                            type="password",
+                            help="Necessário para classificação inteligente de NCM com Gemini 2.5",
+                            key="ncm_api_key"
+                        )
+
+                st.session_state.use_ncm_agent = use_ncm_agent
+                st.session_state.ncm_api_key = ncm_api_key
 
         # Sempre usar chat moderno
         if MODERN_CHAT_AVAILABLE:
@@ -673,432 +1024,439 @@ def main():
                             else:
                                 st.error(f"❌ Falha ao unir arquivos: {merge_info}")
 
-    # Área principal de conteúdo
-    if not st.session_state.model_initialized:
-        st.info("👆 Selecione e inicialize um modelo de IA com agentes na barra lateral para começar.")
+    # Tab NF-e Validator (if available)
+    if tab_nfe is not None:
+        with tab_nfe:
+            render_nfe_validator_tab()
 
-        # Informações sobre os modelos disponíveis com agentes
-        st.subheader("🤖 Modelos de IA Disponíveis")
+    # Tab EDA - wrap existing EDA content
+    with tab_eda:
+        # Área principal de conteúdo EDA
+        if not st.session_state.model_initialized:
+            st.info("👆 Selecione e inicialize um modelo de IA com agentes na barra lateral para começar.")
 
-        col1, col2 = st.columns(2)
+            # Informações sobre os modelos disponíveis com agentes
+            st.subheader("🤖 Modelos de IA Disponíveis")
 
-        with col1:
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("""
+                ### 🧠 Google Gemini + Agentes
+                **🌐 IA Avançada com Orquestração**
+                - 🤖 **Agentes especializados** para análise
+                - 🧠 **LLM Gemini** para consultas inteligentes
+                - 📊 **Geração automática** de código Python
+                - 🔍 **Análise contextual** dos dados
+                - 📝 **Respostas detalhadas** e insights profundos
+                - ⚠️ Requer API key do Google
+                """)
+
+            with col2:
+                st.markdown("""
+                ### 🔧 Recursos Avançados
+                **⚡ Funcionalidades Premium**
+                - 🧠 **Memória contextual** entre perguntas
+                - 🔄 **Pipeline automático** de dados
+                - 📊 **Visualizações dinâmicas**
+                - 🎯 **Análises especializadas**
+                - 📝 **Relatórios detalhados**
+                - ✨ **Clean Architecture** enterprise
+                """)
+
+            st.markdown("---")
+            st.info("💡 **Modelo ativo**: **Gemini** com agentes para orquestração inteligente de análises complexas!")
+
+        elif st.session_state.current_data is None:
+            st.info("👆 Faça upload de um arquivo CSV na barra lateral para começar a análise.")
+
+        else:
+            # Interface principal com dados carregados
+            st.subheader("📊 Dados Processados e Carregados")
+
+            # Badge indicando uso do pipeline
             st.markdown("""
-            ### 🧠 Google Gemini + Agentes
-            **🌐 IA Avançada com Orquestração**
-            - 🤖 **Agentes especializados** para análise
-            - 🧠 **LLM Gemini** para consultas inteligentes
-            - 📊 **Geração automática** de código Python
-            - 🔍 **Análise contextual** dos dados
-            - 📝 **Respostas detalhadas** e insights profundos
-            - ⚠️ Requer API key do Google
-            """)
+            <div style="background: linear-gradient(90deg, #28a745, #20c997); color: white; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 20px;">
+                ✨ <strong>Dados processados com Pipeline Automático</strong> - Normalizados e otimizados para análise
+            </div>
+            """, unsafe_allow_html=True)
 
-        with col2:
+            # Informações básicas dos dados tratados
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric("📄 Linhas", f"{len(st.session_state.current_data):,}")
+            with col2:
+                st.metric("📋 Colunas", len(st.session_state.current_data.columns))
+            with col3:
+                st.metric("🔢 Numéricas", len(st.session_state.current_data.select_dtypes(include=['number']).columns))
+            with col4:
+                st.metric("📝 Categóricas", len(st.session_state.current_data.select_dtypes(include=['object']).columns))
+
+            # Preview dos dados com informações detalhadas
+            with st.expander("👀 Visualizar Dados", expanded=False):
+                data = st.session_state.current_data
+
+                # Mostrar informações sobre o dataset
+                st.write("**Informações do Dataset:**")
+
+                # Verificar se é dataset de fraude
+                if 'Class' in data.columns and 'Time' in data.columns and 'Amount' in data.columns:
+                    col_desc1, col_desc2 = st.columns(2)
+
+                    with col_desc1:
+                        st.write("**📋 Estrutura do Dataset de Fraude:**")
+                        st.write("• **Time**: Segundos desde primeira transação")
+                        st.write("• **V1-V28**: Componentes PCA (dados anonimizados)")
+                        st.write("• **Amount**: Valor da transação")
+                        st.write("• **Class**: 0=Normal, 1=Fraudulenta")
+
+                    with col_desc2:
+                        st.write("**📊 Estatísticas Rápidas:**")
+                        st.write(f"• Total de transações: {len(data):,}")
+                        st.write(f"• Período: {data['Time'].min():.0f}s a {data['Time'].max():.0f}s")
+                        st.write(f"• Valor médio: R$ {data['Amount'].mean():.2f}")
+                        st.write(f"• Valor máximo: R$ {data['Amount'].max():.2f}")
+
+                # Mostrar primeiras linhas
+                st.write("**🔍 Primeiras 10 linhas:**")
+                st.dataframe(data.head(10), width="stretch")
+
+                # Mostrar informações dos tipos de dados
+                st.write("**🔤 Tipos de Dados:**")
+                col_types1, col_types2 = st.columns(2)
+
+                with col_types1:
+                    numeric_cols = data.select_dtypes(include=['number']).columns.tolist()
+                    st.write(f"**Numéricas ({len(numeric_cols)}):** {', '.join(numeric_cols[:10])}")
+                    if len(numeric_cols) > 10:
+                        st.write(f"... e mais {len(numeric_cols) - 10} colunas")
+
+                with col_types2:
+                    categorical_cols = data.select_dtypes(include=['object']).columns.tolist()
+                    if categorical_cols:
+                        st.write(f"**Categóricas ({len(categorical_cols)}):** {', '.join(categorical_cols)}")
+                    else:
+                        st.write("**Categóricas:** Nenhuma detectada")
+
+            # Interface de conversação
+            model_name = "🧠 Gemini + Agentes"  # Apenas Gemini é suportado
+
+            # Usar apenas chat moderno
+            if MODERN_CHAT_AVAILABLE:
+                render_modern_chat()
+                return
+
+            # Fallback para chat clássico se moderno não estiver disponível
+            st.subheader(f"💬 Chat com {model_name}")
+            st.warning("Chat moderno não disponível, usando versão clássica")
+
+            # Cabeçalho do chat com botões de controle
+            col_chat1, col_chat2, col_chat3 = st.columns([3, 1, 1])
+            with col_chat1:
+                st.markdown("### 💬 Histórico da Conversa")
+            with col_chat2:
+                if st.button("🗑️ Limpar Chat", help="Limpar histórico de conversa", key="clear_chat_btn"):
+                    st.session_state.conversation_history = []
+                    st.session_state.show_response = False
+                    st.rerun()
+            with col_chat3:
+                if st.button("🗂️ Limpar Gráficos", help="Remover gráficos gerados", key="clear_charts_btn"):
+                    try:
+                        settings = get_settings()
+                        charts_dir = Path(settings.charts_dir)
+                        if charts_dir.exists():
+                            import shutil
+                            shutil.rmtree(charts_dir)
+                            charts_dir.mkdir(exist_ok=True)
+                        # Limpar também a lista de gráficos da sessão
+                        st.session_state.session_charts = []
+                        st.success("✅ Gráficos removidos!")
+                        st.rerun()
+                    except:
+                        st.error("❌ Erro ao remover gráficos")
+
+            # Exibir histórico de conversas no estilo chat
+            st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+
+            if st.session_state.conversation_history:
+                # Exibir conversas em ordem cronológica com keys únicas
+                for i, conv in enumerate(st.session_state.conversation_history):
+                    try:
+                        # Validar estrutura da conversa
+                        if not all(key in conv for key in ['question', 'answer', 'timestamp']):
+                            continue
+
+                        # Container único para cada conversa
+                        with st.container():
+                            # Mensagem do usuário
+                            question_text = str(conv['question'])[:500]  # Limitar tamanho
+                            st.markdown(f"""
+                            <div class="user-message">
+                                {question_text}
+                                <div class="message-timestamp">Você • {conv['timestamp'].strftime('%H:%M:%S')}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            # Resposta do assistente com melhor formatação
+                            answer_text = str(conv['answer'])
+                            if len(answer_text) > 5000:  # Limitar resposta para evitar problemas
+                                answer_text = answer_text[:5000] + "... [resposta truncada]"
+
+                            # Limpar caracteres problemáticos
+                            formatted_answer = answer_text.replace('\n', '<br>').replace('  ', '&nbsp;&nbsp;')
+                            formatted_answer = formatted_answer.replace('"', '&quot;').replace("'", '&#39;')
+
+                            # Destacar títulos em negrito
+                            formatted_answer = formatted_answer.replace('📊 ANALISE', '<strong>📊 ANÁLISE</strong>')
+                            formatted_answer = formatted_answer.replace('📈 ANALISE', '<strong>📈 ANÁLISE</strong>')
+                            formatted_answer = formatted_answer.replace('🔍 DETECCAO', '<strong>🔍 DETECÇÃO</strong>')
+                            formatted_answer = formatted_answer.replace('💡 CONCLUSOES', '<strong>💡 CONCLUSÕES</strong>')
+                            formatted_answer = formatted_answer.replace('📊 ANÁLISE DE TIPOS DE DADOS', '<strong>📊 ANÁLISE DE TIPOS DE DADOS</strong>')
+                            formatted_answer = formatted_answer.replace('📈 ANÁLISE DE CORRELAÇÕES', '<strong>📈 ANÁLISE DE CORRELAÇÕES</strong>')
+                            formatted_answer = formatted_answer.replace('🔍 DETECÇÃO DE OUTLIERS', '<strong>🔍 DETECÇÃO DE OUTLIERS</strong>')
+
+                            st.markdown(f"""
+                            <div class="assistant-message">
+                                {formatted_answer}
+                                <div class="message-timestamp">{model_name} • {conv['timestamp'].strftime('%H:%M:%S')}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    except Exception as e:
+                        st.error(f"❌ Erro ao exibir conversa {i}: {str(e)}")
+                        continue
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # Campo de pergunta com estilo melhorado
             st.markdown("""
-            ### 🔧 Recursos Avançados
-            **⚡ Funcionalidades Premium**
-            - 🧠 **Memória contextual** entre perguntas
-            - 🔄 **Pipeline automático** de dados
-            - 📊 **Visualizações dinâmicas**
-            - 🎯 **Análises especializadas**
-            - 📝 **Relatórios detalhados**
-            - ✨ **Clean Architecture** enterprise
-            """)
+            <style>
+            .stTextInput > div > div > input {
+                background-color: #21262d;
+                color: #f0f6fc;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+                padding: 12px;
+            }
+            .stTextInput > div > div > input:focus {
+                border-color: #007bff;
+                box-shadow: 0 0 0 1px #007bff;
+            }
+            </style>
+            """, unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.info("💡 **Modelo ativo**: **Gemini** com agentes para orquestração inteligente de análises complexas!")
-
-    elif not st.session_state.current_data is not None:
-        st.info("👆 Faça upload de um arquivo CSV na barra lateral para começar a análise.")
-
-    else:
-        # Interface principal com dados carregados
-        st.subheader("📊 Dados Processados e Carregados")
-
-        # Badge indicando uso do pipeline
-        st.markdown("""
-        <div style="background: linear-gradient(90deg, #28a745, #20c997); color: white; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 20px;">
-            ✨ <strong>Dados processados com Pipeline Automático</strong> - Normalizados e otimizados para análise
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Informações básicas dos dados tratados
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.metric("📄 Linhas", f"{len(st.session_state.current_data):,}")
-        with col2:
-            st.metric("📋 Colunas", len(st.session_state.current_data.columns))
-        with col3:
-            st.metric("🔢 Numéricas", len(st.session_state.current_data.select_dtypes(include=['number']).columns))
-        with col4:
-            st.metric("📝 Categóricas", len(st.session_state.current_data.select_dtypes(include=['object']).columns))
-
-        # Preview dos dados com informações detalhadas
-        with st.expander("👀 Visualizar Dados", expanded=False):
-            data = st.session_state.current_data
-
-            # Mostrar informações sobre o dataset
-            st.write("**Informações do Dataset:**")
-
-            # Verificar se é dataset de fraude
-            if 'Class' in data.columns and 'Time' in data.columns and 'Amount' in data.columns:
-                col_desc1, col_desc2 = st.columns(2)
-
-                with col_desc1:
-                    st.write("**📋 Estrutura do Dataset de Fraude:**")
-                    st.write("• **Time**: Segundos desde primeira transação")
-                    st.write("• **V1-V28**: Componentes PCA (dados anonimizados)")
-                    st.write("• **Amount**: Valor da transação")
-                    st.write("• **Class**: 0=Normal, 1=Fraudulenta")
-
-                with col_desc2:
-                    st.write("**📊 Estatísticas Rápidas:**")
-                    st.write(f"• Total de transações: {len(data):,}")
-                    st.write(f"• Período: {data['Time'].min():.0f}s a {data['Time'].max():.0f}s")
-                    st.write(f"• Valor médio: R$ {data['Amount'].mean():.2f}")
-                    st.write(f"• Valor máximo: R$ {data['Amount'].max():.2f}")
-
-            # Mostrar primeiras linhas
-            st.write("**🔍 Primeiras 10 linhas:**")
-            st.dataframe(data.head(10), width="stretch")
-
-            # Mostrar informações dos tipos de dados
-            st.write("**🔤 Tipos de Dados:**")
-            col_types1, col_types2 = st.columns(2)
-
-            with col_types1:
-                numeric_cols = data.select_dtypes(include=['number']).columns.tolist()
-                st.write(f"**Numéricas ({len(numeric_cols)}):** {', '.join(numeric_cols[:10])}")
-                if len(numeric_cols) > 10:
-                    st.write(f"... e mais {len(numeric_cols) - 10} colunas")
-
-            with col_types2:
-                categorical_cols = data.select_dtypes(include=['object']).columns.tolist()
-                if categorical_cols:
-                    st.write(f"**Categóricas ({len(categorical_cols)}):** {', '.join(categorical_cols)}")
-                else:
-                    st.write("**Categóricas:** Nenhuma detectada")
-
-        # Interface de conversação
-        model_name = "🧠 Gemini + Agentes"  # Apenas Gemini é suportado
-
-        # Usar apenas chat moderno
-        if MODERN_CHAT_AVAILABLE:
-            render_modern_chat()
-            return
-
-        # Fallback para chat clássico se moderno não estiver disponível
-        st.subheader(f"💬 Chat com {model_name}")
-        st.warning("Chat moderno não disponível, usando versão clássica")
-
-        # Cabeçalho do chat com botões de controle
-        col_chat1, col_chat2, col_chat3 = st.columns([3, 1, 1])
-        with col_chat1:
-            st.markdown("### 💬 Histórico da Conversa")
-        with col_chat2:
-            if st.button("🗑️ Limpar Chat", help="Limpar histórico de conversa", key="clear_chat_btn"):
-                st.session_state.conversation_history = []
+            # Inicializar estados para controle de reatividade
+            if 'input_counter' not in st.session_state:
+                st.session_state.input_counter = 0
+            if 'last_question' not in st.session_state:
+                st.session_state.last_question = ""
+            if 'processing' not in st.session_state:
+                st.session_state.processing = False
+            if 'show_response' not in st.session_state:
                 st.session_state.show_response = False
+
+            # Seção de input com container estável
+            with st.container():
+                # Usar form para melhor controle de reatividade
+                with st.form(key=f"question_form_{st.session_state.input_counter}", clear_on_submit=True):
+                    user_question = st.text_input(
+                        "",
+                        placeholder="Digite sua pergunta sobre os dados...",
+                        key=f"input_field_{st.session_state.input_counter}"
+                    )
+
+                    col1, col2 = st.columns([1, 4])
+                    with col1:
+                        send_button = st.form_submit_button("📤 Enviar", type="primary")
+
+                    with col2:
+                        if st.session_state.processing:
+                            st.info("🔄 Processando pergunta...")
+
+            # Processar pergunta quando enviada
+            if send_button and user_question and not st.session_state.processing:
+                st.session_state.processing = True
+                st.session_state.last_question = user_question
                 st.rerun()
-        with col_chat3:
-            if st.button("🗂️ Limpar Gráficos", help="Remover gráficos gerados", key="clear_charts_btn"):
+
+            # Processar a pergunta em estado separado para evitar conflitos
+            if st.session_state.processing and st.session_state.last_question:
+                with st.spinner("🤖 Analisando seus dados..."):
+                    try:
+                        # Configurar callback para registrar gráficos gerados
+                        def chart_callback(chart_names):
+                            for chart_name in chart_names:
+                                if chart_name not in st.session_state.session_charts:
+                                    st.session_state.session_charts.append(chart_name)
+
+                        st.session_state.eda_agent.set_chart_callback(chart_callback)
+
+                        # Processar pergunta através do agente
+                        response = st.session_state.eda_agent.process_question(st.session_state.last_question)
+
+                        # Validar resposta antes de salvar
+                        if not response:
+                            response = "❌ Nenhuma resposta gerada pelo agente"
+
+                        # Limpar resposta para evitar problemas de formatação
+                        cleaned_response = str(response).replace("```python", "```\npython").replace("```", "\n```\n")
+
+                        # Salvar na conversa
+                        st.session_state.conversation_history.append({
+                            'question': st.session_state.last_question,
+                            'answer': cleaned_response,
+                            'timestamp': pd.Timestamp.now()
+                        })
+
+                        # Reset do estado de processamento
+                        st.session_state.processing = False
+                        st.session_state.last_question = ""
+                        st.session_state.input_counter += 1
+                        st.session_state.show_response = True
+
+                        # Reexecutar para atualizar interface
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ Erro na análise: {str(e)}")
+                        st.write("**Detalhes do erro:**")
+                        st.code(str(e))
+                        st.session_state.processing = False
+
+            # Mostrar última resposta de forma estável
+            if st.session_state.show_response and st.session_state.conversation_history:
+                try:
+                    latest_conv = st.session_state.conversation_history[-1]
+                    st.success("✅ Nova resposta adicionada ao chat!")
+
+                    # Garantir que temos uma resposta válida
+                    if 'answer' in latest_conv and latest_conv['answer']:
+                        with st.expander("📋 Última Resposta", expanded=True):
+                            answer_text = str(latest_conv['answer'])
+
+                            st.markdown(f"**🙋 Pergunta:** {latest_conv['question']}")
+                            st.markdown(f"**⏰ Horário:** {latest_conv['timestamp'].strftime('%d/%m/%Y %H:%M:%S')}")
+
+                            # Processar resposta para separar código e resultado
+                            if "Código gerado:" in answer_text and "="*50 in answer_text:
+                                # Separar partes da resposta
+                                parts = answer_text.split("="*50)
+
+                                # Código gerado
+                                if len(parts) > 0 and "Código gerado:" in parts[0]:
+                                    code_section = parts[0].replace("Código gerado:", "").strip()
+                                    if code_section:
+                                        st.markdown("**🐍 Código Python Gerado:**")
+                                        st.code(code_section, language="python")
+
+                                # Resultado da execução
+                                if len(parts) > 1:
+                                    result_text = parts[1].strip()
+                                    if result_text:
+                                        st.markdown("**📊 Resultado da Análise:**")
+
+                                        # Processar diferentes seções do resultado
+                                        sections = result_text.split('\n')
+                                        current_section = ""
+
+                                        for line in sections:
+                                            if line.startswith("Resultado:"):
+                                                if current_section:
+                                                    st.text(current_section)
+                                                    current_section = ""
+                                                st.markdown("**📈 Resultado:**")
+                                            elif line.startswith("Avisos/Erros:"):
+                                                if current_section:
+                                                    st.text(current_section)
+                                                    current_section = ""
+                                                if line.strip() != "Avisos/Erros:":
+                                                    st.markdown("**⚠️ Avisos/Erros:**")
+                                            elif line.startswith("🔍 Conclusão:"):
+                                                if current_section:
+                                                    st.text(current_section)
+                                                    current_section = ""
+                                                st.markdown("**🔍 Conclusão da Análise:**")
+                                            else:
+                                                current_section += line + "\n"
+
+                                        # Mostrar última seção se houver
+                                        if current_section.strip():
+                                            st.text(current_section.strip())
+                            else:
+                                # Resposta normal sem código
+                                st.markdown("**🤖 Resposta:**")
+                                if len(answer_text) > 10000:
+                                    answer_text = answer_text[:10000] + "... [resposta truncada]"
+                                st.markdown(answer_text)
+
+                            # Verificar e exibir gráficos gerados
+                            import os
+                            charts_dir = 'charts'
+                            if os.path.exists(charts_dir):
+                                chart_files = [f for f in os.listdir(charts_dir) if f.endswith('.png')]
+                                if chart_files:
+                                    st.markdown("**📈 Gráficos Gerados:**")
+
+                                    # Ordenar por data de modificação (mais recente primeiro)
+                                    chart_files.sort(key=lambda x: os.path.getmtime(os.path.join(charts_dir, x)), reverse=True)
+
+                                    # Mostrar até 5 gráficos mais recentes
+                                    for chart_file in chart_files[:5]:
+                                        chart_path = os.path.join(charts_dir, chart_file)
+                                        try:
+                                            st.image(chart_path, caption=chart_file.replace('.png', '').replace('_', ' ').title())
+                                        except:
+                                            pass
+
+                    else:
+                        st.error("❌ Resposta vazia ou inválida")
+
+                    st.session_state.show_response = False
+
+                except Exception as e:
+                    st.error(f"❌ Erro ao exibir resposta: {str(e)}")
+                    st.session_state.show_response = False
+
+            # Verificar se há gráficos gerados APENAS desta sessão atual
+            if st.session_state.session_charts:
                 try:
                     settings = get_settings()
                     charts_dir = Path(settings.charts_dir)
+
                     if charts_dir.exists():
-                        import shutil
-                        shutil.rmtree(charts_dir)
-                        charts_dir.mkdir(exist_ok=True)
-                    # Limpar também a lista de gráficos da sessão
-                    st.session_state.session_charts = []
-                    st.success("✅ Gráficos removidos!")
-                    st.rerun()
+                        # Mostrar apenas gráficos que foram explicitamente gerados nesta sessão
+                        existing_charts = []
+                        for chart_name in st.session_state.session_charts:
+                            chart_path = charts_dir / f"{chart_name}.png"
+                            if chart_path.exists():
+                                existing_charts.append(chart_path)
+
+                        if existing_charts:
+                            st.markdown("---")
+                            st.subheader("📈 Gráficos Gerados Nesta Sessão")
+
+                            for idx, chart_file in enumerate(existing_charts):
+                                # Melhor apresentação dos gráficos com keys únicas
+                                chart_time = pd.Timestamp.fromtimestamp(chart_file.stat().st_mtime)
+
+                                with st.container(key=f"chart_container_{idx}_{chart_file.stem}"):
+                                    col_img, col_info = st.columns([3, 1])
+
+                                    with col_img:
+                                        st.image(
+                                            str(chart_file),
+                                            caption=chart_file.stem.replace('_', ' ').title(),
+                                            use_column_width=True,
+                                            key=f"chart_img_{idx}_{chart_file.stem}"
+                                        )
+
+                                    with col_info:
+                                        st.write(f"**📊 {chart_file.stem.replace('_', ' ').title()}**")
+                                        st.write(f"🕒 {chart_time.strftime('%H:%M:%S')}")
+                                        st.write(f"📏 {chart_file.stat().st_size // 1024}KB")
                 except:
-                    st.error("❌ Erro ao remover gráficos")
-
-        # Exibir histórico de conversas no estilo chat
-        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-
-        if st.session_state.conversation_history:
-            # Exibir conversas em ordem cronológica com keys únicas
-            for i, conv in enumerate(st.session_state.conversation_history):
-                try:
-                    # Validar estrutura da conversa
-                    if not all(key in conv for key in ['question', 'answer', 'timestamp']):
-                        continue
-
-                    # Container único para cada conversa
-                    with st.container():
-                        # Mensagem do usuário
-                        question_text = str(conv['question'])[:500]  # Limitar tamanho
-                        st.markdown(f"""
-                        <div class="user-message">
-                            {question_text}
-                            <div class="message-timestamp">Você • {conv['timestamp'].strftime('%H:%M:%S')}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                        # Resposta do assistente com melhor formatação
-                        answer_text = str(conv['answer'])
-                        if len(answer_text) > 5000:  # Limitar resposta para evitar problemas
-                            answer_text = answer_text[:5000] + "... [resposta truncada]"
-
-                        # Limpar caracteres problemáticos
-                        formatted_answer = answer_text.replace('\n', '<br>').replace('  ', '&nbsp;&nbsp;')
-                        formatted_answer = formatted_answer.replace('"', '&quot;').replace("'", '&#39;')
-
-                        # Destacar títulos em negrito
-                        formatted_answer = formatted_answer.replace('📊 ANALISE', '<strong>📊 ANÁLISE</strong>')
-                        formatted_answer = formatted_answer.replace('📈 ANALISE', '<strong>📈 ANÁLISE</strong>')
-                        formatted_answer = formatted_answer.replace('🔍 DETECCAO', '<strong>🔍 DETECÇÃO</strong>')
-                        formatted_answer = formatted_answer.replace('💡 CONCLUSOES', '<strong>💡 CONCLUSÕES</strong>')
-                        formatted_answer = formatted_answer.replace('📊 ANÁLISE DE TIPOS DE DADOS', '<strong>📊 ANÁLISE DE TIPOS DE DADOS</strong>')
-                        formatted_answer = formatted_answer.replace('📈 ANÁLISE DE CORRELAÇÕES', '<strong>📈 ANÁLISE DE CORRELAÇÕES</strong>')
-                        formatted_answer = formatted_answer.replace('🔍 DETECÇÃO DE OUTLIERS', '<strong>🔍 DETECÇÃO DE OUTLIERS</strong>')
-
-                        st.markdown(f"""
-                        <div class="assistant-message">
-                            {formatted_answer}
-                            <div class="message-timestamp">{model_name} • {conv['timestamp'].strftime('%H:%M:%S')}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                except Exception as e:
-                    st.error(f"❌ Erro ao exibir conversa {i}: {str(e)}")
-                    continue
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Campo de pergunta com estilo melhorado
-        st.markdown("""
-        <style>
-        .stTextInput > div > div > input {
-            background-color: #21262d;
-            color: #f0f6fc;
-            border: 1px solid #30363d;
-            border-radius: 10px;
-            padding: 12px;
-        }
-        .stTextInput > div > div > input:focus {
-            border-color: #007bff;
-            box-shadow: 0 0 0 1px #007bff;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        # Inicializar estados para controle de reatividade
-        if 'input_counter' not in st.session_state:
-            st.session_state.input_counter = 0
-        if 'last_question' not in st.session_state:
-            st.session_state.last_question = ""
-        if 'processing' not in st.session_state:
-            st.session_state.processing = False
-        if 'show_response' not in st.session_state:
-            st.session_state.show_response = False
-
-        # Seção de input com container estável
-        with st.container():
-            # Usar form para melhor controle de reatividade
-            with st.form(key=f"question_form_{st.session_state.input_counter}", clear_on_submit=True):
-                user_question = st.text_input(
-                    "",
-                    placeholder="Digite sua pergunta sobre os dados...",
-                    key=f"input_field_{st.session_state.input_counter}"
-                )
-
-                col1, col2 = st.columns([1, 4])
-                with col1:
-                    send_button = st.form_submit_button("📤 Enviar", type="primary")
-
-                with col2:
-                    if st.session_state.processing:
-                        st.info("🔄 Processando pergunta...")
-
-        # Processar pergunta quando enviada
-        if send_button and user_question and not st.session_state.processing:
-            st.session_state.processing = True
-            st.session_state.last_question = user_question
-            st.rerun()
-
-        # Processar a pergunta em estado separado para evitar conflitos
-        if st.session_state.processing and st.session_state.last_question:
-            with st.spinner("🤖 Analisando seus dados..."):
-                try:
-                    # Configurar callback para registrar gráficos gerados
-                    def chart_callback(chart_names):
-                        for chart_name in chart_names:
-                            if chart_name not in st.session_state.session_charts:
-                                st.session_state.session_charts.append(chart_name)
-
-                    st.session_state.eda_agent.set_chart_callback(chart_callback)
-
-                    # Processar pergunta através do agente
-                    response = st.session_state.eda_agent.process_question(st.session_state.last_question)
-
-                    # Validar resposta antes de salvar
-                    if not response:
-                        response = "❌ Nenhuma resposta gerada pelo agente"
-
-                    # Limpar resposta para evitar problemas de formatação
-                    cleaned_response = str(response).replace("```python", "```\npython").replace("```", "\n```\n")
-
-                    # Salvar na conversa
-                    st.session_state.conversation_history.append({
-                        'question': st.session_state.last_question,
-                        'answer': cleaned_response,
-                        'timestamp': pd.Timestamp.now()
-                    })
-
-                    # Reset do estado de processamento
-                    st.session_state.processing = False
-                    st.session_state.last_question = ""
-                    st.session_state.input_counter += 1
-                    st.session_state.show_response = True
-
-                    # Reexecutar para atualizar interface
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"❌ Erro na análise: {str(e)}")
-                    st.write("**Detalhes do erro:**")
-                    st.code(str(e))
-                    st.session_state.processing = False
-
-        # Mostrar última resposta de forma estável
-        if st.session_state.show_response and st.session_state.conversation_history:
-            try:
-                latest_conv = st.session_state.conversation_history[-1]
-                st.success("✅ Nova resposta adicionada ao chat!")
-
-                # Garantir que temos uma resposta válida
-                if 'answer' in latest_conv and latest_conv['answer']:
-                    with st.expander("📋 Última Resposta", expanded=True):
-                        answer_text = str(latest_conv['answer'])
-
-                        st.markdown(f"**🙋 Pergunta:** {latest_conv['question']}")
-                        st.markdown(f"**⏰ Horário:** {latest_conv['timestamp'].strftime('%d/%m/%Y %H:%M:%S')}")
-
-                        # Processar resposta para separar código e resultado
-                        if "Código gerado:" in answer_text and "="*50 in answer_text:
-                            # Separar partes da resposta
-                            parts = answer_text.split("="*50)
-
-                            # Código gerado
-                            if len(parts) > 0 and "Código gerado:" in parts[0]:
-                                code_section = parts[0].replace("Código gerado:", "").strip()
-                                if code_section:
-                                    st.markdown("**🐍 Código Python Gerado:**")
-                                    st.code(code_section, language="python")
-
-                            # Resultado da execução
-                            if len(parts) > 1:
-                                result_text = parts[1].strip()
-                                if result_text:
-                                    st.markdown("**📊 Resultado da Análise:**")
-
-                                    # Processar diferentes seções do resultado
-                                    sections = result_text.split('\n')
-                                    current_section = ""
-
-                                    for line in sections:
-                                        if line.startswith("Resultado:"):
-                                            if current_section:
-                                                st.text(current_section)
-                                                current_section = ""
-                                            st.markdown("**📈 Resultado:**")
-                                        elif line.startswith("Avisos/Erros:"):
-                                            if current_section:
-                                                st.text(current_section)
-                                                current_section = ""
-                                            if line.strip() != "Avisos/Erros:":
-                                                st.markdown("**⚠️ Avisos/Erros:**")
-                                        elif line.startswith("🔍 Conclusão:"):
-                                            if current_section:
-                                                st.text(current_section)
-                                                current_section = ""
-                                            st.markdown("**🔍 Conclusão da Análise:**")
-                                        else:
-                                            current_section += line + "\n"
-
-                                    # Mostrar última seção se houver
-                                    if current_section.strip():
-                                        st.text(current_section.strip())
-                        else:
-                            # Resposta normal sem código
-                            st.markdown("**🤖 Resposta:**")
-                            if len(answer_text) > 10000:
-                                answer_text = answer_text[:10000] + "... [resposta truncada]"
-                            st.markdown(answer_text)
-
-                        # Verificar e exibir gráficos gerados
-                        import os
-                        charts_dir = 'charts'
-                        if os.path.exists(charts_dir):
-                            chart_files = [f for f in os.listdir(charts_dir) if f.endswith('.png')]
-                            if chart_files:
-                                st.markdown("**📈 Gráficos Gerados:**")
-
-                                # Ordenar por data de modificação (mais recente primeiro)
-                                chart_files.sort(key=lambda x: os.path.getmtime(os.path.join(charts_dir, x)), reverse=True)
-
-                                # Mostrar até 5 gráficos mais recentes
-                                for chart_file in chart_files[:5]:
-                                    chart_path = os.path.join(charts_dir, chart_file)
-                                    try:
-                                        st.image(chart_path, caption=chart_file.replace('.png', '').replace('_', ' ').title())
-                                    except:
-                                        pass
-
-                else:
-                    st.error("❌ Resposta vazia ou inválida")
-
-                st.session_state.show_response = False
-
-            except Exception as e:
-                st.error(f"❌ Erro ao exibir resposta: {str(e)}")
-                st.session_state.show_response = False
-
-        # Verificar se há gráficos gerados APENAS desta sessão atual
-        if st.session_state.session_charts:
-            try:
-                settings = get_settings()
-                charts_dir = Path(settings.charts_dir)
-
-                if charts_dir.exists():
-                    # Mostrar apenas gráficos que foram explicitamente gerados nesta sessão
-                    existing_charts = []
-                    for chart_name in st.session_state.session_charts:
-                        chart_path = charts_dir / f"{chart_name}.png"
-                        if chart_path.exists():
-                            existing_charts.append(chart_path)
-
-                    if existing_charts:
-                        st.markdown("---")
-                        st.subheader("📈 Gráficos Gerados Nesta Sessão")
-
-                        for idx, chart_file in enumerate(existing_charts):
-                            # Melhor apresentação dos gráficos com keys únicas
-                            chart_time = pd.Timestamp.fromtimestamp(chart_file.stat().st_mtime)
-
-                            with st.container(key=f"chart_container_{idx}_{chart_file.stem}"):
-                                col_img, col_info = st.columns([3, 1])
-
-                                with col_img:
-                                    st.image(
-                                        str(chart_file),
-                                        caption=chart_file.stem.replace('_', ' ').title(),
-                                        use_column_width=True,
-                                        key=f"chart_img_{idx}_{chart_file.stem}"
-                                    )
-
-                                with col_info:
-                                    st.write(f"**📊 {chart_file.stem.replace('_', ' ').title()}**")
-                                    st.write(f"🕒 {chart_time.strftime('%H:%M:%S')}")
-                                    st.write(f"📏 {chart_file.stat().st_size // 1024}KB")
-            except:
-                pass  # Ignorar se não conseguir acessar gráficos
+                    pass  # Ignorar se não conseguir acessar gráficos
 
 
 def render_classic_chat(model_name: str):
