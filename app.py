@@ -694,8 +694,51 @@ def render_nfe_validator_tab():
                         report = ColumnMapper.get_mapping_report(mapping, missing)
                         st.markdown(report)
 
-                        # Mostrar capacidades de validação
+                        # Verificar se há ALGUMA validação fiscal possível
                         capabilities = ColumnMapper.get_validation_capabilities(mapping)
+                        has_any_fiscal = any([
+                            capabilities.get('ncm', False),
+                            capabilities.get('cfop', False),
+                            capabilities.get('pis_cofins', False),
+                            capabilities.get('valores', False)
+                        ])
+
+                        if not has_any_fiscal:
+                            # NENHUMA validação fiscal possível - ALERTA GRANDE
+                            st.markdown("""
+                            <div style="
+                                background-color: #ff4444;
+                                color: white;
+                                padding: 30px;
+                                border-radius: 10px;
+                                text-align: center;
+                                margin: 20px 0;
+                                border: 3px solid #cc0000;
+                            ">
+                                <h1 style="font-size: 36px; margin: 0; font-weight: bold;">
+                                    ⚠️ ESSE DOCUMENTO NÃO POSSUI DADOS FISCAIS ⚠️
+                                </h1>
+                                <p style="font-size: 18px; margin-top: 15px;">
+                                    O arquivo carregado NÃO contém informações de ITENS e IMPOSTOS necessárias para validação fiscal.
+                                </p>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            st.error("""
+                            **Arquivo atual:** Apenas dados cadastrais (emitente, destinatário, totais).
+
+                            **Para validação fiscal, você precisa de um arquivo contendo:**
+                            - 📦 **Itens da NF-e** (produtos, descrições, quantidades)
+                            - 🏷️ **NCM** (classificação fiscal)
+                            - 📋 **CFOP** (código de operação)
+                            - 💰 **PIS/COFINS** (CST, alíquotas, valores)
+                            - 📊 **Valores** (unitário, total)
+
+                            💡 **Dica:** Carregue o arquivo de **ITENS** da NF-e (não apenas o cabeçalho).
+                            """)
+                            return  # PARA aqui - não continua
+
+                        # Mostrar capacidades de validação
                         st.markdown("### 🔍 Validações Possíveis:")
 
                         cap_col1, cap_col2 = st.columns(2)
@@ -834,6 +877,33 @@ def render_nfe_validator_tab():
     if st.session_state.get('nfe_validated') and st.session_state.get('nfe_results'):
         st.markdown("---")
         st.header("📈 Resultados da Validação")
+
+        # Check if there are ANY fiscal validations possible
+        capabilities = st.session_state.get('nfe_capabilities', {})
+        has_any_fiscal = any([
+            capabilities.get('ncm', False),
+            capabilities.get('cfop', False),
+            capabilities.get('pis_cofins', False),
+            capabilities.get('valores', False)
+        ])
+
+        if not has_any_fiscal:
+            # Nenhuma validação fiscal possível
+            st.error("⚠️ **ESSE DOCUMENTO NÃO POSSUI DADOS FISCAIS**")
+            st.warning("""
+            O arquivo carregado não contém colunas necessárias para validação fiscal.
+
+            **Colunas ausentes críticas:**
+            - NCM (Nomenclatura Comum do Mercosul)
+            - CFOP (Código Fiscal de Operações)
+            - PIS/COFINS (CST, alíquotas, valores)
+            - Valores de itens
+
+            **Arquivo atual:** Apenas dados cadastrais (emitente, destinatário).
+
+            Para validação fiscal, carregue um arquivo contendo **dados de itens e impostos**.
+            """)
+            return  # Não mostrar resultados
 
         # Show data completeness warning if needed
         if not st.session_state.get('nfe_has_minimum_data', True):

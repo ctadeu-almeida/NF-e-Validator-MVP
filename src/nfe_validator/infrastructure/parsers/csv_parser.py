@@ -150,13 +150,33 @@ class NFeCSVParser:
         return nfes
 
     def _validate_columns(self, df: pd.DataFrame):
-        """Validar se colunas obrigatórias existem"""
-        missing_cols = [col for col in self.REQUIRED_COLUMNS if col not in df.columns]
+        """
+        Validar colunas - permite parsing parcial
 
-        if missing_cols:
+        Apenas valida se há colunas MÍNIMAS para identificar uma NF-e.
+        Validações fiscais serão limitadas conforme colunas disponíveis.
+        """
+        # Colunas MÍNIMAS absolutas (identificação básica)
+        minimum_required = [
+            'chave_acesso', 'numero_nfe',
+            'cnpj_emitente', 'cnpj_destinatario'
+        ]
+
+        missing_minimum = [col for col in minimum_required if col not in df.columns]
+
+        if missing_minimum:
             raise CSVParserException(
-                f"Colunas obrigatórias ausentes: {', '.join(missing_cols)}"
+                f"Colunas MÍNIMAS ausentes (impossível identificar NF-e): {', '.join(missing_minimum)}"
             )
+
+        # Verificar se há ALGUMA validação fiscal possível
+        fiscal_columns = ['ncm', 'cfop', 'pis_cst', 'cofins_cst', 'valor_total']
+        has_any_fiscal = any(col in df.columns for col in fiscal_columns)
+
+        if not has_any_fiscal:
+            # Não tem dados fiscais - alertar mas não bloquear
+            import logging
+            logging.warning("⚠️ Nenhuma coluna fiscal encontrada - validações limitadas")
 
     def _normalize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normalizar dados do DataFrame"""
@@ -318,8 +338,8 @@ class NFeCSVParser:
         return nfe
 
     def _parse_item(self, row: pd.Series) -> NFeItem:
-        """Parsear item da NF-e"""
-        # Parsear impostos
+        """Parsear item da NF-e - permite dados parciais"""
+        # Parsear impostos (valores padrão se não disponíveis)
         impostos = ImpostoItem(
             # ICMS
             icms_cst=row.get('icms_cst', ''),
@@ -333,30 +353,30 @@ class NFeCSVParser:
             ipi_aliquota=Decimal(row.get('ipi_aliquota', '0')),
             ipi_valor=Decimal(row.get('ipi_valor', '0')),
 
-            # PIS
-            pis_cst=row['pis_cst'],
+            # PIS (permite ausência)
+            pis_cst=row.get('pis_cst', ''),
             pis_base=Decimal(row.get('pis_base', row.get('valor_total', '0'))),
-            pis_aliquota=Decimal(row['pis_aliquota']),
-            pis_valor=Decimal(row['pis_valor']),
+            pis_aliquota=Decimal(row.get('pis_aliquota', '0')),
+            pis_valor=Decimal(row.get('pis_valor', '0')),
 
-            # COFINS
-            cofins_cst=row['cofins_cst'],
+            # COFINS (permite ausência)
+            cofins_cst=row.get('cofins_cst', ''),
             cofins_base=Decimal(row.get('cofins_base', row.get('valor_total', '0'))),
-            cofins_aliquota=Decimal(row['cofins_aliquota']),
-            cofins_valor=Decimal(row['cofins_valor']),
+            cofins_aliquota=Decimal(row.get('cofins_aliquota', '0')),
+            cofins_valor=Decimal(row.get('cofins_valor', '0')),
         )
 
-        # Criar item
+        # Criar item (valores padrão se ausentes)
         item = NFeItem(
-            numero_item=int(row['numero_item']),
-            codigo_produto=row['codigo_produto'],
-            descricao=row['descricao'],
-            ncm=row['ncm'],
-            cfop=row['cfop'],
-            unidade=row['unidade'],
-            quantidade=Decimal(row['quantidade']),
-            valor_unitario=Decimal(row['valor_unitario']),
-            valor_total=Decimal(row['valor_total']),
+            numero_item=int(row.get('numero_item', 1)),
+            codigo_produto=row.get('codigo_produto', ''),
+            descricao=row.get('descricao', ''),
+            ncm=row.get('ncm', ''),
+            cfop=row.get('cfop', ''),
+            unidade=row.get('unidade', ''),
+            quantidade=Decimal(row.get('quantidade', '0')),
+            valor_unitario=Decimal(row.get('valor_unitario', '0')),
+            valor_total=Decimal(row.get('valor_total', '0')),
             valor_desconto=Decimal(row.get('valor_desconto', '0')),
             valor_frete=Decimal(row.get('valor_frete', '0')),
             impostos=impostos,
