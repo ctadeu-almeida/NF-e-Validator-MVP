@@ -22,12 +22,14 @@ Este sistema oferece **duas funcionalidades complementares** em uma única aplic
 - Chat inteligente para análise de dados
 
 ### 🧾 Módulo NF-e Validator (Complementar)
-- Validação fiscal automatizada de Notas Fiscais Eletrônicas
-- Foco no setor sucroalcooleiro (açúcar)
-- Validações federais e estaduais (SP + PE)
+- **Validação em 3 camadas**: CSV Local → SQLite → LLM (sob demanda)
+- Validação rápida local sem uso de API
+- Mapeamento inteligente de colunas (reconhece variações)
+- Validação parcial com dados incompletos
+- Foco no setor sucroalcooleiro (açúcar + insumos agrícolas)
+- 35+ regras fiscais editáveis em `base_validacao.csv`
 - Agente IA para classificação NCM (opcional)
 - Relatórios detalhados em JSON e Markdown
-- Detecção de tributação indevida
 
 ---
 
@@ -36,22 +38,27 @@ Este sistema oferece **duas funcionalidades complementares** em uma única aplic
 ### ✅ Validações Implementadas
 
 **Federal (Brasil todo):**
-- ✅ NCM × Descrição do produto
-- ✅ PIS/COFINS (CST, alíquotas, valores)
-- ✅ CFOP (interno vs interestadual)
-- ✅ Cálculos e somatórios
+- ✅ NCM × Descrição (açúcar 1701xxxx + insumos agrícolas)
+- ✅ PIS/COFINS - CST 06 (alíquota zero), manutenção de créditos
+- ✅ Tese STJ (REsp 1.221.170) - Insumos da fase agrícola
+- ✅ CFOP - Territorialidade (5xxx interno, 6xxx interestadual)
+- ✅ Exclusão ICMS da BC PIS/COFINS (Tema 69 STF)
 
 **Estadual (SP + PE):**
-- ✅ ICMS alíquota padrão (18%)
-- ✅ Substituição tributária (SP)
-- ✅ Benefícios fiscais (PE)
-- ⚠️ Retorna apenas warnings (não-bloqueantes)
+- ✅ SP - Redução BC ICMS para açúcar (RICMS/SP Anexo II)
+- ✅ PE - Crédito presumido 9% (regime substitutivo)
+- ✅ PE - Isenção ICMS cana-de-açúcar
 
-**Inteligência Artificial:**
-- ✅ Agente LangChain ReAct para classificação NCM
-- ✅ Google Gemini 2.5 Pro (atualizado)
-- ✅ Raciocínio explicável (reasoning trace)
-- ✅ Reutilização automática da API key do EDA
+**Sistema de Camadas:**
+- 🥇 **CSV Local** (`base_validacao.csv`) - Regras customizadas (prioridade máxima)
+- 🥈 **SQLite** (`rules.db`) - Base padrão do sistema (sempre ativo)
+- 🥉 **Gemini LLM** - Sob demanda (opcional, via botão na interface)
+
+**Características:**
+- ⚡ Validação instantânea (sem API) - apenas regras locais
+- 🔍 Mapeamento inteligente de colunas (aceita variações de nome)
+- 📊 Validação parcial (continua mesmo sem dados completos)
+- 🤖 LLM apenas quando necessário (botão "Validar com IA")
 
 ---
 
@@ -62,25 +69,30 @@ Este sistema oferece **duas funcionalidades complementares** em uma única aplic
 ```
 src/
 ├── nfe_validator/
-│   ├── domain/              # Entidades e regras de negócio
-│   │   ├── entities/        # NFeEntity, ValidationError, etc.
+│   ├── domain/
+│   │   ├── entities/        # NFeEntity, ValidationError
 │   │   └── services/        # Validadores (Federal + Estadual)
-│   ├── application/         # Casos de uso
-│   └── infrastructure/      # Parsers, Generators
-├── repositories/            # Acesso ao database
-├── database/                # SQLite rules.db
-├── agents/                  # LangChain ReAct agents
-└── interface/               # Streamlit web UI
+│   ├── infrastructure/
+│   │   └── parsers/
+│   │       └── column_mapper.py  # Mapeamento inteligente
+├── repositories/
+│   ├── fiscal_repository.py      # Validação em camadas
+│   └── local_csv_repository.py   # Repositório CSV local
+├── database/
+│   └── rules.db            # SQLite (base padrão)
+├── agents/                 # LangChain ReAct agents
+└── base_validacao.csv      # Regras customizadas (editável)
 ```
 
 ### Stack Tecnológico
 
 - **Python 3.10+**
-- **SQLite** (rules.db - 27 regras fiscais para NF-e)
-- **LangChain** (ReAct agent pattern para ambos os módulos)
-- **Google Gemini 2.5** (LLM - atualizado)
-- **Streamlit** (Interface web unificada com tabs)
-- **Pandas** (CSV processing completo, sem limites de linhas)
+- **CSV Local** (`base_validacao.csv` - 35+ regras editáveis)
+- **SQLite** (`rules.db` - base padrão)
+- **LangChain** (ReAct agent pattern)
+- **Google Gemini 2.5** (LLM - sob demanda)
+- **Streamlit** (Interface unificada)
+- **Pandas** (processamento sem limites)
 
 ---
 
@@ -180,35 +192,44 @@ A aplicação abrirá com **duas tabs**:
 
 **Passo a passo:**
 
-1. **Carregar Base Fiscal** (sidebar):
+1. **Configurar Camadas de Validação** (sidebar):
+   - ✅ CSV Local (`base_validacao.csv`) - Prioridade máxima
+   - ✅ SQLite (`rules.db`) - Sempre ativo
+   - ⚪ LLM (Gemini) - Sob demanda (opcional)
    - Clique em "📚 Carregar Base Fiscal"
-   - Sistema carrega 27 regras fiscais do SQLite
 
-2. **(Opcional) Ativar Agente IA para NCM** (sidebar):
-   - Marque "🤖 Usar Agente IA para NCM"
-   - Se já inicializou Gemini no EDA, a chave é reutilizada automaticamente
-   - Caso contrário, insira a chave da API Google
+2. **Carregar Dados no EDA** (Tab 1):
+   - Faça upload do CSV de NF-e na aba EDA
+   - Sistema detecta automaticamente as colunas
 
-3. **Upload de NF-es** (tab NF-e):
-   - Selecione arquivo CSV com notas fiscais
-   - Clique em "🔍 Validar NF-es"
-   - **Arquivo completo é processado** (sem limites)
-   - Sistema valida todas as NF-es encontradas
+3. **Validar NF-es** (Tab 2):
+   - Clique em "🔍 Validar NF-es dos Dados"
+   - ⚡ Análise rápida local (sem API) com progress bar
+   - Visualize relatório com erros detectados
+   - Colunas ausentes são listadas por categoria
 
 4. **Visualizar Resultados**:
-   - **📋 Relatório**: Visualização formatada em Markdown
+   - **📋 Relatório**: Erros por severidade (Critical/Error/Warning/Info)
    - **📄 JSON**: Estrutura completa para integração
-   - **🤖 Sugestões IA**: Recomendações do agente NCM (se ativado)
-   - **💾 Downloads**: Baixe relatórios em MD ou JSON
+   - **🤖 Sugestões IA**:
+     - Itens com erro de NCM → Botão "Validar com IA"
+     - Validação individual ou em lote
+     - LLM consultado apenas sob demanda
+   - **💾 Downloads**: Relatórios em MD ou JSON
 
-**Features NF-e:**
-- ✅ Validação federal (NCM, PIS/COFINS, CFOP, Totais)
-- ✅ Validação estadual (SP + PE)
-- ✅ Agente IA opcional para NCM (reutiliza API do EDA)
-- ✅ Relatórios detalhados (JSON + Markdown)
-- ✅ Impacto financeiro calculado
-- ✅ Múltiplas NF-es em lote
-- ✅ Downloads de relatórios
+**Recursos da Validação:**
+- ⚡ **Análise rápida** - Local (CSV + SQLite), sem API
+- 🔍 **Mapeamento inteligente** - Reconhece variações de nomes de colunas
+- 📊 **Validação parcial** - Continua mesmo sem dados completos
+- 📋 **35+ regras editáveis** - `base_validacao.csv` customizável
+- 🎯 **Validações fiscais**:
+  - NCM (açúcar 1701xxxx + insumos agrícolas)
+  - PIS/COFINS (CST 06, tese STJ insumos)
+  - CFOP (territorialidade)
+  - ICMS SP (redução BC), PE (crédito presumido)
+  - Exclusão ICMS da BC (Tema 69 STF)
+- 🤖 **IA opcional** - LLM apenas quando necessário
+- 💰 **Impacto financeiro** - Cálculo automático
 
 ---
 
