@@ -552,10 +552,13 @@ def validate_nfe_with_pipeline(nfe, repo, use_ai_agent=False, api_key=None):
     """
     Execute full NF-e validation pipeline
 
+    IMPORTANTE: LLM NÃO é executado automaticamente aqui.
+    Validação rápida usa apenas CSV Local + SQLite.
+
     Args:
         nfe: NFeEntity to validate
         repo: FiscalRepository
-        use_ai_agent: Enable AI agent for NCM classification
+        use_ai_agent: Enable AI agent for NCM classification (IGNORADO na validação inicial)
         api_key: Google API key for agent
 
     Returns:
@@ -563,7 +566,7 @@ def validate_nfe_with_pipeline(nfe, repo, use_ai_agent=False, api_key=None):
     """
     from nfe_validator.domain.entities.nfe_entity import Severity
 
-    # Federal Validators
+    # Federal Validators (usam CSV Local → SQLite, SEM LLM)
     item_validators = [
         NCMValidator(repo),
         PISCOFINSValidator(repo),
@@ -593,46 +596,54 @@ def validate_nfe_with_pipeline(nfe, repo, use_ai_agent=False, api_key=None):
             errors = pe_validator.validate(item, nfe)
             nfe.validation_errors.extend(errors)
 
-    # AI Agent (optional)
-    if use_ai_agent and api_key:
-        try:
-            from agents.ncm_agent import create_ncm_agent
-
-            with st.spinner("Inicializando Agente IA para NCM..."):
-                agent = create_ncm_agent(repo, api_key)
-
-            # Initialize suggestions dict
-            if 'ai_ncm_suggestions' not in st.session_state:
-                st.session_state.ai_ncm_suggestions = {}
-
-            with st.spinner("Classificando NCMs com IA..."):
-                for item in nfe.items:
-                    try:
-                        result = agent.classify_ncm(item.descricao, item.ncm)
-
-                        if result.get('suggested_ncm'):
-                            st.session_state.ai_ncm_suggestions[item.numero_item] = result
-
-                    except Exception as item_error:
-                        st.session_state.ai_ncm_suggestions[item.numero_item] = {
-                            'suggested_ncm': None,
-                            'confidence': 0,
-                            'reasoning': f"Erro: {str(item_error)}",
-                            'is_correct': None,
-                            'error': str(item_error)
-                        }
-
-        except Exception as e:
-            st.warning(f"⚠️ Agente IA não disponível: {str(e)}")
-            st.info("Continuando validação sem agente IA...")
+    # AI Agent NÃO é executado aqui automaticamente
+    # Será chamado apenas sob demanda em função separada
 
     return nfe
 
 
+def validate_nfe_item_with_ai(nfe, item_numero, repo, api_key):
+    """
+    Validar item específico da NF-e usando Agente IA (sob demanda)
+
+    Args:
+        nfe: NFeEntity
+        item_numero: Número do item a validar
+        repo: FiscalRepository
+        api_key: Google API key
+
+    Returns:
+        Dict com sugestão do agente IA
+    """
+    try:
+        from agents.ncm_agent import create_ncm_agent
+
+        # Find item
+        item = next((i for i in nfe.items if i.numero_item == item_numero), None)
+        if not item:
+            return {'error': 'Item não encontrado'}
+
+        # Create agent
+        agent = create_ncm_agent(repo, api_key)
+
+        # Classify NCM
+        result = agent.classify_ncm(item.descricao, item.ncm)
+
+        return result
+
+    except Exception as e:
+        return {
+            'error': str(e),
+            'suggested_ncm': None,
+            'confidence': 0,
+            'reasoning': f"Erro ao consultar IA: {str(e)}"
+        }
+
+
 def render_nfe_validator_tab():
-    """Render NF-e Validator tab content"""
+    """Render NF-e Validator tab content - usa dados do EDA"""
     st.subheader("🧾 Validação de Notas Fiscais Eletrônicas")
-    st.markdown("**Validação Fiscal Automatizada - Setor Sucroalcooleiro (Açúcar)**")
+    st.markdown("**Validação Fiscal Automatizada - Análise de Dados Carregados no EDA**")
     st.markdown("---")
 
     # Get repository from session state
@@ -642,86 +653,213 @@ def render_nfe_validator_tab():
         st.error("❌ Base fiscal não carregada! Configure na barra lateral.")
         return
 
-    # File uploader for NF-e CSV
+    # Check if data is loaded from EDA
+    if st.session_state.get('current_data') is None:
+        st.warning("⚠️ Nenhum dado carregado no EDA")
+        st.info("""
+        **Para usar a validação de NF-e:**
+
+        1. Carregue um arquivo CSV na aba "📊 Análise de Dados (EDA)"
+        2. Aguarde o processamento dos dados
+        3. Retorne para esta aba para validar as NF-es
+
+        O sistema irá analisar os dados já carregados e identificar inconsistências fiscais.
+        """)
+        return
+
+    # Data is loaded - show info and validate
+    data = st.session_state.current_data
+    filename = st.session_state.get('current_filename', 'Dataset')
+
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        st.markdown("### 📤 Upload de NF-e")
-        uploaded_nfe_file = st.file_uploader(
-            "Selecione um arquivo CSV com NF-es",
-            type=['csv'],
-            help="Arquivo CSV no formato esperado para validação de NF-e",
-            key="nfe_uploader"
-        )
+        st.markdown("### 📊 Dados Carregados")
+        st.success(f"**Arquivo:** {filename}")
+        st.metric("📄 Linhas", f"{len(data):,}")
+        st.metric("📋 Colunas", len(data.columns))
 
-        if uploaded_nfe_file:
-            st.success(f"Arquivo: {uploaded_nfe_file.name}")
+        # Validate button
+        if st.button("🔍 Validar NF-es dos Dados", type="primary"):
+            with st.spinner("Analisando estrutura dos dados..."):
+                try:
+                    # Importar mapeador de colunas
+                    from nfe_validator.infrastructure.parsers.column_mapper import ColumnMapper
 
-            # Validate button
-            if st.button("🔍 Validar NF-es", type="primary"):
-                with st.spinner("Processando NF-es..."):
-                    try:
-                        # Save to temp file
+                    # Mapear colunas automaticamente
+                    mapping, missing = ColumnMapper.map_columns(data)
+
+                    # Mostrar relatório de mapeamento
+                    with st.expander("📋 Mapeamento de Colunas", expanded=True):
+                        report = ColumnMapper.get_mapping_report(mapping, missing)
+                        st.markdown(report)
+
+                        # Mostrar capacidades de validação
+                        capabilities = ColumnMapper.get_validation_capabilities(mapping)
+                        st.markdown("### 🔍 Validações Possíveis:")
+
+                        cap_col1, cap_col2 = st.columns(2)
+                        with cap_col1:
+                            st.write("✅" if capabilities['identificacao'] else "❌", "Identificação (chave, número)")
+                            st.write("✅" if capabilities['partes'] else "❌", "Emitente/Destinatário")
+                            st.write("✅" if capabilities['ncm'] else "❌", "Validação NCM")
+                            st.write("✅" if capabilities['cfop'] else "❌", "Validação CFOP")
+
+                        with cap_col2:
+                            st.write("✅" if capabilities['pis_cofins'] else "❌", "Validação PIS/COFINS")
+                            st.write("✅" if capabilities['valores'] else "❌", "Valores e Totais")
+                            st.write("✅" if capabilities['itens_completos'] else "❌", "Itens Completos")
+
+                    # Verificar se há dados mínimos para validação
+                    has_minimum_data = ColumnMapper.is_nfe_complete(mapping)
+
+                    if not has_minimum_data:
+                        st.warning("⚠️ Dados parciais detectados - Validação limitada")
+                        st.info("""
+                        **Colunas mínimas ausentes:**
+                        - Chave de acesso ou número da NF-e
+                        - Data de emissão
+                        - CNPJ do emitente
+                        - CNPJ do destinatário
+
+                        **Arquivo atual:** Apenas cabeçalho de NF-e detectado.
+
+                        💡 **Dica:** Para validação fiscal completa, carregue também o arquivo de **itens**
+                        contendo NCM, CFOP, valores e impostos (PIS/COFINS).
+
+                        ⚙️ **A validação continuará** com as colunas disponíveis, mas alguns erros podem não ser detectados.
+                        """)
+                        # NÃO retornar - continuar com validação parcial
+
+                    # Aplicar mapeamento aos dados
+                    with st.spinner("Aplicando mapeamento de colunas..."):
+                        data_mapped = ColumnMapper.apply_mapping(data, mapping)
+
+                        # Adicionar colunas faltantes com valores padrão
+                        for col in missing:
+                            if col not in data_mapped.columns:
+                                # Valores padrão conforme o tipo de coluna
+                                if 'valor' in col or 'aliquota' in col:
+                                    data_mapped[col] = 0.0
+                                elif 'cst' in col:
+                                    data_mapped[col] = ''
+                                elif 'numero_item' in col:
+                                    data_mapped[col] = 1
+                                else:
+                                    data_mapped[col] = ''
+
+                        # Save mapped dataframe to temp CSV
                         temp_dir = tempfile.gettempdir()
-                        temp_path = Path(temp_dir) / uploaded_nfe_file.name
+                        temp_path = Path(temp_dir) / f"nfe_validation_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                        data_mapped.to_csv(temp_path, index=False, encoding='utf-8')
 
-                        with open(temp_path, 'wb') as f:
-                            f.write(uploaded_nfe_file.getbuffer())
-
-                        # Parse CSV (full file, no limits)
+                    # Parse CSV (full file, no limits)
+                    with st.spinner("Processando NF-es..."):
                         parser = NFeCSVParser()
                         nfes = parser.parse_csv(str(temp_path))
 
                         if not nfes:
-                            st.error("Nenhuma NF-e encontrada no arquivo")
+                            st.error("❌ Não foi possível processar as NF-es")
                             return
 
-                        st.info(f"📋 {len(nfes)} NF-e(s) encontrada(s)")
+                        st.info(f"📋 {len(nfes)} NF-e(s) encontrada(s) nos dados")
 
-                        # Validate all NF-es
-                        use_ai = st.session_state.get('use_ncm_agent', False)
-                        api_key = st.session_state.get('ncm_api_key', None)
+                    # Validate all NF-es (RÁPIDO - apenas CSV + SQLite, SEM LLM)
+                    validated_nfes = []
 
-                        validated_nfes = []
-                        for i, nfe in enumerate(nfes):
-                            with st.spinner(f"Validando NF-e {i+1}/{len(nfes)}..."):
-                                validated_nfe = validate_nfe_with_pipeline(nfe, repo, use_ai, api_key)
-                                validated_nfes.append(validated_nfe)
+                    # Progress bar for validation
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
 
-                        # Store in session state
-                        st.session_state.nfe_results = validated_nfes
-                        st.session_state.nfe_validated = True
+                    for i, nfe in enumerate(nfes):
+                        status_text.text(f"⚡ Validando NF-e {i+1}/{len(nfes)} (análise rápida - local)...")
+                        validated_nfe = validate_nfe_with_pipeline(nfe, repo, use_ai_agent=False, api_key=None)
+                        validated_nfes.append(validated_nfe)
+                        progress_bar.progress((i + 1) / len(nfes))
 
-                        st.success(f"✅ {len(validated_nfes)} NF-e(s) validada(s)!")
-                        st.rerun()
+                    progress_bar.empty()
+                    status_text.empty()
 
-                    except Exception as e:
-                        st.error(f"Erro ao processar: {str(e)}")
-                        import traceback
-                        with st.expander("🔍 Detalhes do erro"):
-                            st.code(traceback.format_exc())
+                    # Store in session state
+                    st.session_state.nfe_results = validated_nfes
+                    st.session_state.nfe_validated = True
+                    st.session_state.nfe_mapping = mapping
+                    st.session_state.nfe_capabilities = capabilities
+                    st.session_state.nfe_has_minimum_data = has_minimum_data
+                    st.session_state.nfe_missing_columns = missing
+
+                    # Clean up temp file
+                    if temp_path.exists():
+                        temp_path.unlink()
+
+                    if has_minimum_data:
+                        st.success(f"✅ {len(validated_nfes)} NF-e(s) validada(s) com dados completos!")
+                    else:
+                        st.warning(f"⚠️ {len(validated_nfes)} NF-e(s) validada(s) com dados parciais!")
+                        st.info(f"📋 {len(missing)} coluna(s) ausente(s) - Validações limitadas aplicadas")
+
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+                    import traceback
+                    with st.expander("🔍 Detalhes do erro"):
+                        st.code(traceback.format_exc())
 
     with col2:
-        st.markdown("### 📋 Instruções")
+        st.markdown("### 📋 Como Funciona")
         st.info("""
-        **Como usar:**
+        **Validação Automática de NF-es:**
 
-        1. Carregue a base fiscal na barra lateral
-        2. (Opcional) Ative o Agente IA para NCM
-        3. Faça upload do CSV com NF-es
-        4. Clique em "Validar NF-es"
-        5. Visualize os resultados abaixo
+        1. ✅ **Dados já carregados** no EDA são reutilizados
+        2. 🔍 **Análise automática** de estrutura fiscal
+        3. ⚠️ **Detecção de inconsistências**:
+           - NCM × Descrição do produto
+           - Alíquotas PIS/COFINS incorretas
+           - CFOP incompatível com operação
+           - Erros de cálculo e totais
+           - Regras estaduais (SP/PE)
 
-        **Formato CSV esperado:**
-        - Colunas de identificação: chave_acesso, numero_nfe, serie, data_emissao
-        - Emitente/Destinatário: cnpj, razao_social, uf
-        - Itens: ncm, cfop, valor_total, pis, cofins, etc.
+        4. 📊 **Relatórios detalhados** com impacto financeiro
+        5. 🤖 **Agente IA** (opcional) para classificação NCM
+
+        **Colunas necessárias no CSV:**
+        - Identificação: chave_acesso, numero_nfe, serie, data_emissao
+        - Partes: cnpj/razao_social emitente e destinatário, UF
+        - Itens: ncm, cfop, quantidade, valores
+        - Impostos: pis_cst/aliquota/valor, cofins_cst/aliquota/valor
         """)
 
     # Results section
     if st.session_state.get('nfe_validated') and st.session_state.get('nfe_results'):
         st.markdown("---")
         st.header("📈 Resultados da Validação")
+
+        # Show data completeness warning if needed
+        if not st.session_state.get('nfe_has_minimum_data', True):
+            missing_cols = st.session_state.get('nfe_missing_columns', [])
+            with st.expander("⚠️ Colunas Ausentes na Validação", expanded=True):
+                st.warning(f"**{len(missing_cols)} coluna(s) não encontrada(s) no arquivo:**")
+
+                # Group by category
+                categories = {
+                    'Identificação': ['chave_acesso', 'numero_nfe', 'serie', 'data_emissao'],
+                    'Itens': ['numero_item', 'codigo_produto', 'descricao', 'quantidade', 'valor_unitario', 'valor_total'],
+                    'NCM/CFOP': ['ncm', 'cfop'],
+                    'PIS': ['pis_cst', 'pis_aliquota', 'pis_valor'],
+                    'COFINS': ['cofins_cst', 'cofins_aliquota', 'cofins_valor'],
+                    'ICMS': ['icms_cst', 'icms_aliquota', 'icms_valor']
+                }
+
+                for category, cols in categories.items():
+                    missing_in_cat = [c for c in missing_cols if c in cols]
+                    if missing_in_cat:
+                        st.error(f"**{category}:** {', '.join(missing_in_cat)}")
+
+                st.info("""
+                **Impacto:** Algumas validações não puderam ser executadas.
+                Verifique o relatório de validação para ver quais análises foram realizadas.
+                """)
 
         nfes = st.session_state.nfe_results
 
@@ -783,20 +921,93 @@ def render_nfe_validator_tab():
             st.json(json_report)
 
         with tab_ai:
-            # AI Suggestions (if available)
+            st.subheader("🤖 Validação com Inteligência Artificial")
+
+            st.info("""
+            **Validação sob demanda com LLM:**
+
+            A validação inicial foi realizada usando apenas regras locais (CSV + SQLite).
+            Use o Agente IA para validar itens específicos quando houver dúvidas sobre NCM.
+            """)
+
+            # Check if API key is available
+            api_key = st.session_state.get('ncm_api_key', None)
+
+            if not api_key:
+                st.warning("⚠️ Configure a chave da API Gemini na barra lateral para usar o Agente IA")
+            else:
+                st.success("✅ Agente IA disponível")
+
+                # Show items with NCM errors for AI validation
+                ncm_errors = [e for e in nfe.validation_errors if 'NCM' in e.code]
+
+                if ncm_errors:
+                    st.warning(f"🔍 {len(ncm_errors)} erro(s) de NCM detectado(s) na validação local")
+
+                    # Select item to validate with AI
+                    items_with_errors = list(set([e.item_numero for e in ncm_errors if e.item_numero]))
+
+                    if items_with_errors:
+                        selected_item = st.selectbox(
+                            "Selecione um item para validar com IA:",
+                            items_with_errors,
+                            format_func=lambda x: f"Item #{x}"
+                        )
+
+                        if st.button("🤖 Validar com Agente IA", type="primary"):
+                            with st.spinner(f"Consultando Gemini 2.5 para Item #{selected_item}..."):
+                                result = validate_nfe_item_with_ai(nfe, selected_item, repo, api_key)
+
+                                # Store in session state
+                                if 'ai_ncm_suggestions' not in st.session_state:
+                                    st.session_state.ai_ncm_suggestions = {}
+                                st.session_state.ai_ncm_suggestions[selected_item] = result
+
+                                st.rerun()
+                else:
+                    st.success("✅ Nenhum erro de NCM detectado na validação local")
+
+                    # Option to validate all items anyway
+                    if st.checkbox("Validar todos os itens com IA (pode demorar)"):
+                        if st.button("🚀 Validar TODOS com IA", type="secondary"):
+                            st.session_state.ai_ncm_suggestions = {}
+
+                            progress = st.progress(0)
+                            status = st.empty()
+
+                            for i, item in enumerate(nfe.items):
+                                status.text(f"Validando item {i+1}/{len(nfe.items)} com IA...")
+                                result = validate_nfe_item_with_ai(nfe, item.numero_item, repo, api_key)
+                                st.session_state.ai_ncm_suggestions[item.numero_item] = result
+                                progress.progress((i + 1) / len(nfe.items))
+
+                            progress.empty()
+                            status.empty()
+                            st.rerun()
+
+            # Show AI suggestions if available
             if st.session_state.get('ai_ncm_suggestions'):
-                st.subheader("🤖 Sugestões do Agente IA para NCM")
+                st.markdown("---")
+                st.subheader("📊 Sugestões do Agente IA")
 
                 for item_num, suggestion in st.session_state.ai_ncm_suggestions.items():
-                    with st.expander(f"Item #{item_num}"):
-                        st.write(f"**NCM Sugerido:** {suggestion.get('suggested_ncm', 'N/A')}")
-                        st.write(f"**Confiança:** {suggestion.get('confidence', 0)}%")
-                        st.write(f"**NCM Correto:** {'❌ Não' if not suggestion.get('is_correct') else '✅ Sim'}")
+                    with st.expander(f"Item #{item_num}", expanded=True):
+                        if suggestion.get('error'):
+                            st.error(f"❌ Erro: {suggestion['error']}")
+                        else:
+                            col1, col2, col3 = st.columns(3)
 
-                        st.markdown("**Raciocínio do Agente:**")
-                        st.code(suggestion.get('reasoning', 'N/A'))
-            else:
-                st.info("Nenhuma sugestão de IA disponível. Ative o Agente IA nas configurações.")
+                            with col1:
+                                st.metric("NCM Sugerido", suggestion.get('suggested_ncm', 'N/A'))
+                            with col2:
+                                st.metric("Confiança", f"{suggestion.get('confidence', 0)}%")
+                            with col3:
+                                is_correct = suggestion.get('is_correct')
+                                status = "✅ Correto" if is_correct else "❌ Incorreto" if is_correct is False else "❓ Incerto"
+                                st.metric("Status", status)
+
+                            st.markdown("**Raciocínio do Agente:**")
+                            st.code(suggestion.get('reasoning', 'N/A'), language='text')
 
         with tab_download:
             # Download buttons
@@ -903,13 +1114,43 @@ def main():
                 st.session_state.fiscal_repository = None
                 st.session_state.nfe_validated = False
                 st.session_state.nfe_results = None
+                st.session_state.use_local_csv = True
+                st.session_state.use_ai_fallback = False
 
             # Load repository button
             if st.session_state.fiscal_repository is None:
+                # Configurações de camadas ANTES de carregar
+                with st.expander("⚙️ Configuração de Camadas de Validação", expanded=True):
+                    st.markdown("""
+                    **Sistema de Validação em Camadas:**
+
+                    O sistema consulta regras fiscais em ordem de prioridade:
+                    """)
+
+                    use_local_csv = st.checkbox(
+                        "📄 CSV Local (base_validacao.csv)",
+                        value=True,
+                        help="Prioridade MÁXIMA - Regras customizadas da empresa"
+                    )
+
+                    st.info("✅ SQLite (rules.db) - Sempre ativo - Base padrão do sistema")
+
+                    use_ai_fallback = st.checkbox(
+                        "🤖 Agente LLM (fallback)",
+                        value=False,
+                        help="Último recurso - Consulta IA quando nenhuma regra for encontrada"
+                    )
+
+                    st.session_state.use_local_csv = use_local_csv
+                    st.session_state.use_ai_fallback = use_ai_fallback
+
                 if st.button("📚 Carregar Base Fiscal", type="secondary"):
                     with st.spinner("Carregando base de dados fiscal..."):
                         try:
-                            st.session_state.fiscal_repository = FiscalRepository()
+                            st.session_state.fiscal_repository = FiscalRepository(
+                                use_local_csv=st.session_state.use_local_csv,
+                                use_ai_fallback=st.session_state.use_ai_fallback
+                            )
                             st.success("✅ Base fiscal carregada!")
                             st.rerun()
                         except Exception as e:
@@ -917,33 +1158,52 @@ def main():
             else:
                 st.success("✅ Base fiscal carregada")
 
-                # Show repository stats
+                # Show repository layers status
+                try:
+                    layers_status = st.session_state.fiscal_repository.get_repository_layers_status()
+
+                    with st.expander("📊 Status das Camadas", expanded=False):
+                        st.metric("Camadas Ativas", f"{layers_status['total_camadas_ativas']}/{layers_status['camadas_disponiveis']}")
+
+                        for layer in layers_status['camadas_ativas']:
+                            st.success(f"✅ {layer}")
+
+                        # Detalhes CSV Local
+                        if layers_status['csv_local']['disponivel']:
+                            csv_stats = layers_status['csv_local']
+                            st.info(f"📄 CSV Local: {csv_stats['total_regras']} regras ({csv_stats['acucar_ncms']} açúcar + {csv_stats['insumos_ncms']} insumos)")
+
+                        # Detalhes SQLite
+                        if layers_status['sqlite']['disponivel']:
+                            st.info(f"💾 SQLite: {layers_status['sqlite']['total_ncm_rules']} NCMs cadastrados")
+                except Exception as e:
+                    st.warning(f"⚠️ Não foi possível obter estatísticas: {e}")
+
+                # Show repository stats (legacy)
                 try:
                     stats = st.session_state.fiscal_repository.get_statistics()
                     st.metric("Regras Carregadas", sum(stats.values()))
                 except:
                     pass
 
-                # Option to use AI agent for NCM classification
-                use_ncm_agent = st.checkbox("🤖 Usar Agente IA para NCM", value=False)
+                # API Key for AI validation (optional, on-demand only)
+                st.markdown("**🤖 Agente IA (Opcional - Sob Demanda)**")
 
-                # If agent enabled, ask for API key (can reuse from Gemini if available)
-                ncm_api_key = None
-                if use_ncm_agent:
-                    # Try to reuse Gemini API key if available
-                    if st.session_state.model_initialized and st.session_state.eda_agent:
-                        ncm_api_key = st.session_state.eda_agent.api_key
-                        st.info("✅ Usando chave da API do Gemini EDA")
-                    else:
-                        ncm_api_key = st.text_input(
-                            "Google API Key para NCM:",
-                            type="password",
-                            help="Necessário para classificação inteligente de NCM com Gemini 2.5",
-                            key="ncm_api_key"
-                        )
+                # Try to reuse Gemini API key if available
+                if st.session_state.model_initialized and st.session_state.eda_agent:
+                    ncm_api_key = st.session_state.eda_agent.api_key
+                    st.info("✅ Usando chave da API do Gemini EDA")
+                    st.session_state.ncm_api_key = ncm_api_key
+                else:
+                    ncm_api_key = st.text_input(
+                        "Google API Key (Gemini):",
+                        type="password",
+                        help="Necessário apenas para validação com IA (sob demanda). A validação local funciona sem API key.",
+                        key="ncm_api_key"
+                    )
+                    st.session_state.ncm_api_key = ncm_api_key
 
-                st.session_state.use_ncm_agent = use_ncm_agent
-                st.session_state.ncm_api_key = ncm_api_key
+                st.caption("💡 A validação inicial NÃO usa IA - apenas regras locais (rápido)")
 
         # Sempre usar chat moderno
         if MODERN_CHAT_AVAILABLE:

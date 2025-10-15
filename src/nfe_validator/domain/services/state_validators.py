@@ -134,7 +134,7 @@ class SPValidator:
         # Verificar divergência
         if abs(actual_rate - expected_rate) > Decimal('0.01'):
             # Calcular impacto financeiro (diferença no valor)
-            base_calculo = item.impostos.icms_base_calculo or Decimal('0')
+            base_calculo = item.impostos.icms_base or Decimal('0')
 
             expected_value = (base_calculo * expected_rate) / Decimal('100')
             actual_value = item.impostos.icms_valor or Decimal('0')
@@ -319,7 +319,7 @@ class PEValidator:
         # Verificar divergência
         if abs(actual_rate - expected_rate) > Decimal('0.01'):
             # Calcular impacto financeiro
-            base_calculo = item.impostos.icms_base_calculo or Decimal('0')
+            base_calculo = item.impostos.icms_base or Decimal('0')
 
             expected_value = (base_calculo * expected_rate) / Decimal('100')
             actual_value = item.impostos.icms_valor or Decimal('0')
@@ -383,7 +383,7 @@ class PEValidator:
         reduction_rate = Decimal(str(reduction_rate))
 
         # Se há benefício disponível mas não foi aplicado
-        if item.impostos and item.impostos.icms_base_calculo:
+        if item.impostos and item.impostos.icms_base:
             # Verificar se base de cálculo foi reduzida
             # (difícil saber sem valor original do produto, apenas informativo)
 
@@ -391,7 +391,7 @@ class PEValidator:
 
             errors.append(ValidationError(
                 code='PE_BENEFICIO_001',
-                field=f'item[{item.numero_item}].impostos.icms_base_calculo',
+                field=f'item[{item.numero_item}].impostos.icms_base',
                 message=f'Benefício fiscal disponível para NCM {item.ncm} em PE: '
                        f'Redução de {reduction_rate}% na base de cálculo do ICMS. '
                        f'Regra: "{reducao_rule.get("rule_name")}"',

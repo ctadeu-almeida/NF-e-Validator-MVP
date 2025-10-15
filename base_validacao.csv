@@ -1,0 +1,191 @@
+# =====================================================
+# BASE DE VALIDAÇÃO FISCAL - SETOR SUCROALCOOLEIRO
+# =====================================================
+# Fonte: RELATORIO_TECNICO_EXPERT.txt - Protocolo MVP NCM 1701
+# Este arquivo contém as regras fiscais para validação de NF-e
+#
+# ESTRUTURA:
+# - NCM: Código NCM (8 dígitos)
+# - descricao: Descrição do produto
+# - pis_cst_saida: CST esperado para PIS na saída
+# - pis_aliquota_saida: Alíquota de PIS na saída (%)
+# - cofins_cst_saida: CST esperado para COFINS na saída
+# - cofins_aliquota_saida: Alíquota de COFINS na saída (%)
+# - pis_cst_entrada: CST esperado para PIS na entrada
+# - pis_aliquota_entrada: Alíquota de crédito de PIS na entrada (%)
+# - cofins_cst_entrada: CST esperado para COFINS na entrada
+# - cofins_aliquota_entrada: Alíquota de crédito de COFINS na entrada (%)
+# - cfop_saida_permitidos: CFOPs válidos para saída (separados por |)
+# - cfop_entrada_permitidos: CFOPs válidos para entrada (separados por |)
+# - icms_sp_reducao_bc: Redução de Base de Cálculo ICMS em SP (%)
+# - icms_pe_credito_presumido: Crédito presumido ICMS em PE (%)
+# - base_legal: Referência legal principal
+# - observacoes: Observações importantes
+#
+ncm,descricao,pis_cst_saida,pis_aliquota_saida,cofins_cst_saida,cofins_aliquota_saida,pis_cst_entrada,pis_aliquota_entrada,cofins_cst_entrada,cofins_aliquota_entrada,cfop_saida_permitidos,cfop_entrada_permitidos,icms_sp_reducao_bc,icms_pe_credito_presumido,base_legal,observacoes
+
+# =====================================================
+# AÇÚCAR - NCM 1701 (FOCO MVP)
+# =====================================================
+
+# 1701.11.00 - Açúcar de cana bruto
+17011100,Açúcar de cana bruto,06,0.00,06,0.00,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,SIM,9,Lei 10925/2004 Art.1 X; RICMS/SP Anexo II Art.3 V,Alíquota Zero na saída (CST 06). Manter créditos de entrada (Lei 11033/2004 Art.17). SP: RBC do ICMS. PE: Crédito presumido 9% (regime substitutivo)
+
+# 1701.12.00 - Açúcar de beterraba bruto
+17011200,Açúcar de beterraba bruto,06,0.00,06,0.00,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,SIM,9,Lei 10925/2004 Art.1 X,Alíquota Zero na saída. Manter créditos de entrada.
+
+# 1701.13.00 - Açúcar de cana mencionado na Nota 2 de subposição do presente Capítulo
+17011300,Açúcar de cana mencionado na Nota 2 de subposição,06,0.00,06,0.00,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,SIM,9,Lei 10925/2004 Art.1 X,Alíquota Zero na saída. Manter créditos de entrada.
+
+# 1701.14.00 - Outros açúcares de cana
+17011400,Açúcar de cana refinado,06,0.00,06,0.00,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,SIM,9,Lei 10925/2004 Art.1 X; RICMS/SP Anexo II Art.3 V,Alíquota Zero na saída (CST 06). Manter créditos de entrada. SP: RBC do ICMS (cesta básica). PE: Crédito presumido 9%
+
+# 1701.91.00 - Açúcar com adição de aromatizantes ou de corantes
+17019100,Açúcar com adição de aromatizantes ou corantes,06,0.00,06,0.00,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,SIM,9,Lei 10925/2004 Art.1 X,Alíquota Zero na saída. Manter créditos de entrada.
+
+# 1701.99.00 - Outros (incluindo açúcar cristal e refinado)
+17019900,Outros açúcares (cristal/refinado),06,0.00,06,0.00,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,SIM,9,Lei 10925/2004 Art.1 X; RICMS/SP Anexo II Art.3 V,Alíquota Zero na saída (CST 06). Manter créditos de entrada. SP: RBC do ICMS. PE: Crédito presumido 9%. PRINCIPAL NCM do setor
+
+# =====================================================
+# INSUMOS AGRÍCOLAS (FASE AGRÍCOLA - TESE STJ)
+# =====================================================
+# Baseado em REsp 1.221.170 (essencialidade e relevância)
+# Crédito de PIS/COFINS permitido mesmo para insumos não integrados ao produto final
+
+# Fertilizantes e adubos (NCM 31)
+31010000,Adubos de origem animal ou vegetal,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ; Parecer Cosit 05/2018,Insumo agrícola essencial - Crédito de PIS/COFINS permitido (tese STJ). Essencial para cultivo de cana
+
+31021000,Ureia com teor de nitrogênio > 45%,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante nitrogenado - Crédito permitido (essencialidade)
+
+31022100,Sulfato de amônio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante nitrogenado - Crédito permitido
+
+31023000,Nitrato de amônio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante nitrogenado - Crédito permitido
+
+31024000,Misturas de nitrato de amônio com carbonato de cálcio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante - Crédito permitido
+
+31028000,Outros adubos minerais ou químicos nitrogenados,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizantes diversos - Crédito permitido
+
+31031000,Superfosfatos,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante fosfatado - Crédito permitido
+
+31039000,Outros adubos fosfatados,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizantes fosfatados - Crédito permitido
+
+31042000,Cloreto de potássio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante potássico - Crédito permitido (essencial para cana)
+
+31043000,Sulfato de potássio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante potássico - Crédito permitido
+
+31049000,Outros adubos potássicos,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizantes potássicos - Crédito permitido
+
+31051000,Adubos NPK,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante completo NPK - Crédito permitido (principal insumo)
+
+31052000,Adubos com nitrogênio, fósforo e potássio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante NPK - Crédito permitido
+
+31053000,Hidrogenoortofostato de diamônio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante - Crédito permitido
+
+31054000,Dihidrogenoortofosfato de amônio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante - Crédito permitido
+
+31055100,Outros adubos com nitrogênio e fósforo,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizantes diversos - Crédito permitido
+
+31055900,Outros adubos minerais,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizantes diversos - Crédito permitido
+
+31056000,Adubos com fósforo e potássio,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizante - Crédito permitido
+
+31059000,Outros adubos,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fertilizantes diversos - Crédito permitido
+
+# Defensivos agrícolas (NCM 38)
+38080000,Inseticidas,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Defensivo agrícola - Crédito permitido (proteção da lavoura)
+
+38089000,Outros inseticidas,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Defensivos diversos - Crédito permitido
+
+38091000,Herbicidas,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Herbicida - Crédito permitido (controle de ervas daninhas - essencial)
+
+38093000,Herbicidas inibidores de germinação,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Herbicida - Crédito permitido
+
+38099000,Outros herbicidas e reguladores de crescimento,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Herbicidas diversos - Crédito permitido
+
+38081000,Fungicidas,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fungicida - Crédito permitido (proteção contra doenças)
+
+38089100,Outros fungicidas,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Fungicidas diversos - Crédito permitido
+
+# Combustíveis e lubrificantes para máquinas agrícolas (NCM 27)
+27100000,Óleos combustíveis (diesel),50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Diesel para máquinas agrícolas - Crédito permitido (essencial para operação)
+
+27101900,Outros óleos combustíveis,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Combustível - Crédito permitido
+
+27101210,Óleo diesel,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Diesel - Crédito permitido para uso agrícola
+
+27100042,Óleo diesel B10,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Diesel biodiesel - Crédito permitido
+
+27100043,Óleo diesel S500,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Diesel - Crédito permitido
+
+27101012,Lubrificantes para motores,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Lubrificante - Crédito permitido (manutenção de máquinas)
+
+27101019,Outros lubrificantes,50,1.65,50,7.60,5101|5102|6101|6102,1101|2101,NAO,NAO,REsp 1221170 STJ,Lubrificantes - Crédito permitido
+
+# =====================================================
+# CANA-DE-AÇÚCAR (MATÉRIA-PRIMA)
+# =====================================================
+
+12129100,Cana-de-açúcar,50,1.65,50,7.60,5101|5152|6101|6152,1101|1152|2101|2152,ISENTO_PE,NAO,Lei Estadual PE,Matéria-prima - Isenção ICMS em PE nas saídas internas. Transferências entre estabelecimentos (5152/1152)
+
+# =====================================================
+# OBSERVAÇÕES IMPORTANTES
+# =====================================================
+#
+# 1. ALÍQUOTA ZERO (CST 06) vs MONOFÁSICO (CST 04):
+#    - Açúcar NCM 1701 é ALÍQUOTA ZERO (CST 06), NÃO monofásico
+#    - Erro comum: parametrizar como CST 04 (monofásico)
+#
+# 2. MANUTENÇÃO DE CRÉDITOS (Lei 11.033/2004 Art.17):
+#    - Mesmo com saída CST 06 (alíquota zero), os créditos de entrada DEVEM ser mantidos
+#    - CST de entrada: 50 ou 51 (crédito no regime não-cumulativo)
+#    - Alíquotas de crédito: PIS 1.65% + COFINS 7.60%
+#
+# 3. EXCLUSÃO DO ICMS DA BASE DE CÁLCULO (Tema 69 STF - RE 574.706):
+#    - O ICMS destacado NÃO compõe a base de cálculo de PIS/COFINS
+#    - BC_PIS_COFINS = Valor_Total_NF - ICMS_Destacado
+#    - Aplicável mesmo em operações com alíquota zero (conformidade)
+#
+# 4. VALIDAÇÃO DE CFOP vs UF (Detecção de Erro 2):
+#    - CFOP 5xxx (interno) = Emitente e Destinatário na mesma UF
+#    - CFOP 6xxx (interestadual) = Emitente e Destinatário em UFs diferentes
+#    - Inconsistência = Risco de autuação ICMS
+#
+# 5. ICMS - SÃO PAULO (RICMS/SP Anexo II Art.3 V):
+#    - NCM 1701 (açúcar cristal/refinado) tem REDUÇÃO DE BASE DE CÁLCULO
+#    - Alíquota nominal: 18% | Carga efetiva: ~7% ou 12% (conforme RBC)
+#    - Erro: Aplicar alíquota sobre base integral = ICMS pago a maior
+#    - IMPORTANTE: Açúcar BRUTO pode não ter direito ao benefício (TJSP)
+#
+# 6. ICMS - PERNAMBUCO:
+#    - Crédito presumido de 9% sobre as saídas (Lei Estadual PE)
+#    - Regime SUBSTITUTIVO: NÃO pode acumular com créditos normais de entrada
+#    - Risco de autuação se houver apropriação dupla (Erro 8 PE)
+#    - Cana-de-açúcar: ISENÇÃO ICMS nas saídas internas
+#
+# 7. INSUMOS AGRÍCOLAS - TESE STJ (REsp 1.221.170):
+#    - Conceito ampliado de "insumo" para PIS/COFINS
+#    - Critério: ESSENCIALIDADE e RELEVÂNCIA (não apenas integração física)
+#    - Permite crédito sobre: fertilizantes, defensivos, combustíveis, manutenção
+#    - Aplica-se à FASE AGRÍCOLA (cultivo da cana)
+#    - Parecer Cosit 05/2018 internaliza entendimento do STJ
+#
+# 8. PRIORIDADES DE VALIDAÇÃO (MVP):
+#    - P1: NCM 1701 + CST 06 nas saídas (detecção de cobrança indevida)
+#    - P2: Exclusão ICMS da BC (Tema 69 - conformidade)
+#    - P3: Créditos de insumos agrícolas (tese STJ - alto valor de recuperação)
+#    - P4: RBC ICMS em SP / Crédito presumido PE (conformidade estadual)
+#
+# 9. REFERÊNCIAS LEGAIS PRINCIPAIS:
+#    - Lei 10.925/2004 Art.1 X: Alíquota Zero para açúcar NCM 1701
+#    - Lei 11.033/2004 Art.17: Manutenção de créditos com saída alíquota zero
+#    - REsp 1.221.170 (STJ): Conceito ampliado de insumo (essencialidade)
+#    - RE 574.706 (STF) Tema 69: Exclusão ICMS da BC PIS/COFINS
+#    - RICMS/SP Anexo II Art.3 V: Redução BC ICMS para açúcar em SP
+#    - Lei Estadual PE: Crédito presumido 9% e isenção da cana
+#
+# 10. FORMATO DOS DADOS:
+#     - NCMs com 8 dígitos (sem pontos ou hífen)
+#     - CST com 2 dígitos (01, 02, 04, 06, 50, 51)
+#     - Alíquotas em % (1.65 para 1,65%)
+#     - CFOPs separados por pipe | (ex: 5101|6101)
+#     - RBC e Crédito Presumido: SIM/NAO ou percentual

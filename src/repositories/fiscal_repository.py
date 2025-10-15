@@ -21,14 +21,17 @@ class FiscalRepository:
     Repositório de acesso às regras fiscais no SQLite
 
     Provê interface para queries no rules.db
+    Suporta consulta em camadas: CSV Local → SQLite → LLM (opcional)
     """
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str = None, use_local_csv: bool = True, use_ai_fallback: bool = False):
         """
         Inicializar repositório
 
         Args:
             db_path: Caminho para rules.db (default: src/database/rules.db)
+            use_local_csv: Habilitar consulta ao CSV local como primeira camada
+            use_ai_fallback: Habilitar consulta LLM como última camada (fallback)
         """
         if db_path is None:
             # Path padrão relativo ao projeto
@@ -37,6 +40,20 @@ class FiscalRepository:
 
         self.db_path = str(db_path)
         self.conn = None
+        self.use_local_csv = use_local_csv
+        self.use_ai_fallback = use_ai_fallback
+
+        # Inicializar repositório CSV local
+        self.local_repo = None
+        if use_local_csv:
+            try:
+                from repositories.local_csv_repository import LocalCSVRepository
+                self.local_repo = LocalCSVRepository()
+            except Exception as e:
+                import logging
+                logging.warning(f"LocalCSVRepository não disponível: {e}")
+                self.local_repo = None
+
         self._connect()
 
     def _connect(self):
@@ -67,7 +84,12 @@ class FiscalRepository:
 
     def get_ncm_rule(self, ncm: str) -> Optional[Dict[str, Any]]:
         """
-        Obter regra de NCM
+        Obter regra de NCM com consulta em camadas
+
+        Ordem de precedência:
+        1. CSV Local (base_validacao.csv) - prioridade máxima
+        2. SQLite (rules.db) - base padrão do sistema
+        3. LLM (opcional) - fallback com IA
 
         Args:
             ncm: Código NCM (8 dígitos)
@@ -75,6 +97,13 @@ class FiscalRepository:
         Returns:
             Dict com dados do NCM ou None se não encontrado
         """
+        # Camada 1: Consultar CSV local primeiro
+        if self.local_repo and self.local_repo.is_available():
+            rule = self.local_repo.get_ncm_rule(ncm)
+            if rule:
+                return rule
+
+        # Camada 2: Consultar SQLite
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT
@@ -96,6 +125,12 @@ class FiscalRepository:
         row = cursor.fetchone()
         if row:
             return dict(row)
+
+        # Camada 3: LLM fallback (se habilitado)
+        # TODO: Implementar consulta ao agente LLM como última camada
+        # if self.use_ai_fallback:
+        #     return self._query_llm_for_ncm(ncm)
+
         return None
 
     def get_all_sugar_ncms(self) -> List[Dict[str, Any]]:
@@ -151,16 +186,24 @@ class FiscalRepository:
     # PIS/COFINS Rules
     # =====================================================
 
-    def get_pis_cofins_rule(self, cst: str) -> Optional[Dict[str, Any]]:
+    def get_pis_cofins_rule(self, cst: str, ncm: str = None) -> Optional[Dict[str, Any]]:
         """
-        Obter regra PIS/COFINS por CST
+        Obter regra PIS/COFINS por CST (com suporte a camadas)
 
         Args:
             cst: CST PIS/COFINS (2 dígitos)
+            ncm: Código NCM (opcional, para consulta no CSV local)
 
         Returns:
             Dict com regra ou None
         """
+        # Camada 1: Consultar CSV local se NCM fornecido
+        if ncm and self.local_repo and self.local_repo.is_available():
+            rule = self.local_repo.get_pis_cofins_rule(ncm, tipo_operacao='saida')
+            if rule and rule.get('pis_cst') == cst:
+                return rule
+
+        # Camada 2: Consultar SQLite
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT
@@ -464,7 +507,6 @@ class FiscalRepository:
                 scope,
                 url,
                 relevant_articles,
-                legal_reference,
                 published_date,
                 effective_date
             FROM legal_refs
@@ -522,6 +564,56 @@ class FiscalRepository:
         title = ref['title']
 
         return f"{ref_type} {number}/{year} - {title}"
+
+    # =====================================================
+    # Métodos de Diagnóstico e Estatísticas
+    # =====================================================
+
+    def get_repository_layers_status(self) -> Dict[str, Any]:
+        """
+        Obter status das camadas de consulta
+
+        Returns:
+            Dict com informações sobre cada camada
+        """
+        status = {
+            'camadas_ativas': [],
+            'camadas_disponiveis': 3,
+            'ordem_precedencia': ['CSV Local', 'SQLite', 'LLM (fallback)']
+        }
+
+        # Status CSV Local
+        if self.local_repo and self.local_repo.is_available():
+            status['camadas_ativas'].append('CSV Local')
+            status['csv_local'] = self.local_repo.get_statistics()
+        else:
+            status['csv_local'] = {'disponivel': False}
+
+        # Status SQLite
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT COUNT(*) as count FROM ncm_rules")
+            ncm_count = cursor.fetchone()['count']
+            status['camadas_ativas'].append('SQLite')
+            status['sqlite'] = {
+                'disponivel': True,
+                'database': self.db_path,
+                'total_ncm_rules': ncm_count
+            }
+        except Exception as e:
+            status['sqlite'] = {'disponivel': False, 'erro': str(e)}
+
+        # Status LLM
+        status['llm'] = {
+            'habilitado': self.use_ai_fallback,
+            'disponivel': False  # TODO: Implementar verificação de API key
+        }
+        if self.use_ai_fallback:
+            status['camadas_ativas'].append('LLM')
+
+        status['total_camadas_ativas'] = len(status['camadas_ativas'])
+
+        return status
 
     # =====================================================
     # Queries Auxiliares
