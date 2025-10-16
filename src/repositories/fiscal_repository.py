@@ -616,6 +616,107 @@ class FiscalRepository:
         return status
 
     # =====================================================
+    # Legal References (Fontes de Consulta)
+    # =====================================================
+
+    def get_all_legal_references(self, category: str = None) -> List[Dict[str, Any]]:
+        """
+        Obter todas as referências legais
+
+        Args:
+            category: Filtrar por categoria (FEDERAL, ESTADUAL, JURISPRUDENCIA)
+
+        Returns:
+            Lista de dicionários com referências legais
+        """
+        cursor = self.conn.cursor()
+
+        if category:
+            cursor.execute("""
+                SELECT *
+                FROM legal_references
+                WHERE category = ?
+                ORDER BY subcategory, title
+            """, (category,))
+        else:
+            cursor.execute("""
+                SELECT *
+                FROM legal_references
+                ORDER BY category, subcategory, title
+            """)
+
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_legal_reference_by_code(self, reference_code: str) -> Optional[Dict[str, Any]]:
+        """
+        Obter referência legal por código
+
+        Args:
+            reference_code: Código da referência (ex: LEI_10925_2004)
+
+        Returns:
+            Dicionário com dados da referência ou None
+        """
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            SELECT *
+            FROM legal_references
+            WHERE reference_code = ?
+        """, (reference_code,))
+
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def search_legal_references(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Buscar referências legais por texto
+
+        Args:
+            query: Texto de busca (procura em title, description, notes)
+
+        Returns:
+            Lista de referências encontradas
+        """
+        cursor = self.conn.cursor()
+
+        search_term = f'%{query}%'
+        cursor.execute("""
+            SELECT *
+            FROM legal_references
+            WHERE title LIKE ?
+               OR description LIKE ?
+               OR notes LIKE ?
+            ORDER BY category, title
+        """, (search_term, search_term, search_term))
+
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_legal_references_by_scope(self, scope: str) -> List[Dict[str, Any]]:
+        """
+        Obter referências por âmbito
+
+        Args:
+            scope: Âmbito (NACIONAL, SÃO PAULO, PERNAMBUCO)
+
+        Returns:
+            Lista de referências
+        """
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            SELECT *
+            FROM legal_references
+            WHERE scope = ?
+            ORDER BY category, title
+        """, (scope,))
+
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    # =====================================================
     # Queries Auxiliares
     # =====================================================
 

@@ -1043,10 +1043,11 @@ def render_nfe_validator_tab():
             st.success("✅ NF-e VÁLIDA")
 
         # Tabs for different views
-        tab_report, tab_json, tab_ai, tab_download = st.tabs([
+        tab_report, tab_json, tab_ai, tab_legal, tab_download = st.tabs([
             "📋 Relatório",
             "📄 JSON",
             "🤖 Sugestões IA",
+            "📚 Fontes Legais",
             "💾 Downloads"
         ])
 
@@ -1172,6 +1173,92 @@ def render_nfe_validator_tab():
 
                             st.markdown("**Raciocínio do Agente:**")
                             st.code(suggestion.get('reasoning', 'N/A'), language='text')
+
+        with tab_legal:
+            st.subheader("📚 Fontes de Consulta Legal")
+
+            st.info("""
+            **Base de Conhecimento Legislativo:**
+
+            Esta seção apresenta as principais fontes legais utilizadas nas validações fiscais.
+            Use como referência para contestações, consultas e treinamento.
+            """)
+
+            # Filtros
+            col_filter1, col_filter2 = st.columns(2)
+
+            with col_filter1:
+                category_filter = st.selectbox(
+                    "Filtrar por Categoria:",
+                    ["Todas", "FEDERAL", "ESTADUAL", "JURISPRUDENCIA"],
+                    key="legal_category_filter"
+                )
+
+            with col_filter2:
+                search_query = st.text_input(
+                    "🔍 Buscar por palavra-chave:",
+                    placeholder="Ex: açúcar, PIS, ICMS, crédito...",
+                    key="legal_search"
+                )
+
+            # Buscar referências
+            if search_query:
+                references = repo.search_legal_references(search_query)
+                st.info(f"📊 {len(references)} referência(s) encontrada(s) para: **{search_query}**")
+            elif category_filter != "Todas":
+                references = repo.get_all_legal_references(category=category_filter)
+            else:
+                references = repo.get_all_legal_references()
+
+            # Agrupar por categoria
+            categories = {}
+            for ref in references:
+                cat = ref['category']
+                if cat not in categories:
+                    categories[cat] = []
+                categories[cat].append(ref)
+
+            # Exibir por categoria
+            for cat_name, refs in sorted(categories.items()):
+                with st.expander(f"📂 {cat_name} ({len(refs)} referência(s))", expanded=(category_filter == cat_name)):
+                    for ref in refs:
+                        st.markdown(f"### {ref['title']}")
+
+                        col_meta1, col_meta2 = st.columns(2)
+                        with col_meta1:
+                            st.markdown(f"**Código:** `{ref['reference_code']}`")
+                            st.markdown(f"**Subcategoria:** {ref['subcategory']}")
+                        with col_meta2:
+                            st.markdown(f"**Âmbito:** {ref['scope']}")
+                            if ref['enacted_date']:
+                                st.markdown(f"**Data:** {ref['enacted_date']}")
+
+                        st.markdown(f"**Descrição:**")
+                        st.markdown(ref['description'])
+
+                        if ref['notes']:
+                            st.info(f"💡 **Notas:** {ref['notes']}")
+
+                        if ref['url']:
+                            st.markdown(f"🔗 [Acessar legislação completa]({ref['url']})")
+
+                        st.markdown("---")
+
+            # Estatísticas
+            st.markdown("### 📊 Estatísticas da Base Legal")
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+
+            with col_stat1:
+                federal_count = len([r for r in references if r['category'] == 'FEDERAL'])
+                st.metric("Federal", federal_count)
+
+            with col_stat2:
+                estadual_count = len([r for r in references if r['category'] == 'ESTADUAL'])
+                st.metric("Estadual", estadual_count)
+
+            with col_stat3:
+                jurisp_count = len([r for r in references if r['category'] == 'JURISPRUDENCIA'])
+                st.metric("Jurisprudência", jurisp_count)
 
         with tab_download:
             # Download buttons
