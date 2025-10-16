@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import pandas as pd
 import sys
 import os
@@ -1106,13 +1106,22 @@ def render_nfe_validator_tab():
                                 return f"Item #{x}"
 
                         selected_items = st.multiselect(
-                            "Selecione os itens para validar com IA:",
+                            "Selecione os itens para validar com IA (você pode selecionar múltiplos itens):",
                             items_with_errors,
                             default=[],
-                            format_func=format_item_option
+                            format_func=format_item_option,
+                            help="Clique no campo e selecione quantos itens desejar. Os itens selecionados aparecerão como tags."
                         )
 
-                        if st.button("🤖 Validar com Agente IA", type="primary", disabled=len(selected_items) == 0):
+                        col_btn1, col_btn2 = st.columns([3, 1])
+                        with col_btn1:
+                            validate_btn = st.button("🤖 Validar com Agente IA", type="primary", disabled=len(selected_items) == 0)
+                        with col_btn2:
+                            if st.button("Selecionar Todos"):
+                                selected_items = items_with_errors
+                                st.rerun()
+
+                        if validate_btn:
                             if 'ai_ncm_suggestions' not in st.session_state:
                                 st.session_state.ai_ncm_suggestions = {}
 
@@ -1210,10 +1219,10 @@ def render_nfe_validator_tab():
             else:
                 references = repo.get_all_legal_references()
 
-            # Agrupar por categoria
+            # Agrupar por scope
             categories = {}
             for ref in references:
-                cat = ref['category']
+                cat = ref['scope']
                 if cat not in categories:
                     categories[cat] = []
                 categories[cat].append(ref)
@@ -1226,20 +1235,20 @@ def render_nfe_validator_tab():
 
                         col_meta1, col_meta2 = st.columns(2)
                         with col_meta1:
-                            st.markdown(f"**Código:** `{ref['reference_code']}`")
-                            st.markdown(f"**Subcategoria:** {ref['subcategory']}")
+                            st.markdown(f"**Código:** `{ref['code']}`")
+                            st.markdown(f"**Tipo:** {ref['ref_type']}")
                         with col_meta2:
                             st.markdown(f"**Âmbito:** {ref['scope']}")
-                            if ref['enacted_date']:
-                                st.markdown(f"**Data:** {ref['enacted_date']}")
+                            if ref.get('published_date'):
+                                st.markdown(f"**Data:** {ref['published_date']}")
 
                         st.markdown(f"**Descrição:**")
-                        st.markdown(ref['description'])
+                        st.markdown(ref.get('summary', 'N/A'))
 
-                        if ref['notes']:
+                        if ref.get('notes'):
                             st.info(f"💡 **Notas:** {ref['notes']}")
 
-                        if ref['url']:
+                        if ref.get('url'):
                             st.markdown(f"🔗 [Acessar legislação completa]({ref['url']})")
 
                         st.markdown("---")
@@ -1249,16 +1258,16 @@ def render_nfe_validator_tab():
             col_stat1, col_stat2, col_stat3 = st.columns(3)
 
             with col_stat1:
-                federal_count = len([r for r in references if r['category'] == 'FEDERAL'])
+                federal_count = len([r for r in references if r['scope'] == 'FEDERAL'])
                 st.metric("Federal", federal_count)
 
             with col_stat2:
-                estadual_count = len([r for r in references if r['category'] == 'ESTADUAL'])
+                estadual_count = len([r for r in references if r['scope'] == 'ESTADUAL'])
                 st.metric("Estadual", estadual_count)
 
             with col_stat3:
-                jurisp_count = len([r for r in references if r['category'] == 'JURISPRUDENCIA'])
-                st.metric("Jurisprudência", jurisp_count)
+                municipal_count = len([r for r in references if r['scope'] == 'MUNICIPAL'])
+                st.metric("Municipal", municipal_count)
 
         with tab_download:
             # Download buttons

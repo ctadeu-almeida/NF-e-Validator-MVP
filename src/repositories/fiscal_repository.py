@@ -634,15 +634,15 @@ class FiscalRepository:
         if category:
             cursor.execute("""
                 SELECT *
-                FROM legal_references
-                WHERE category = ?
-                ORDER BY subcategory, title
+                FROM legal_refs
+                WHERE scope = ?
+                ORDER BY ref_type, title
             """, (category,))
         else:
             cursor.execute("""
                 SELECT *
-                FROM legal_references
-                ORDER BY category, subcategory, title
+                FROM legal_refs
+                ORDER BY scope, ref_type, title
             """)
 
         rows = cursor.fetchall()
@@ -662,8 +662,8 @@ class FiscalRepository:
 
         cursor.execute("""
             SELECT *
-            FROM legal_references
-            WHERE reference_code = ?
+            FROM legal_refs
+            WHERE code = ?
         """, (reference_code,))
 
         row = cursor.fetchone()
@@ -674,7 +674,7 @@ class FiscalRepository:
         Buscar referências legais por texto
 
         Args:
-            query: Texto de busca (procura em title, description, notes)
+            query: Texto de busca (procura em title, summary, notes)
 
         Returns:
             Lista de referências encontradas
@@ -684,11 +684,11 @@ class FiscalRepository:
         search_term = f'%{query}%'
         cursor.execute("""
             SELECT *
-            FROM legal_references
+            FROM legal_refs
             WHERE title LIKE ?
-               OR description LIKE ?
+               OR summary LIKE ?
                OR notes LIKE ?
-            ORDER BY category, title
+            ORDER BY scope, title
         """, (search_term, search_term, search_term))
 
         rows = cursor.fetchall()
@@ -699,7 +699,7 @@ class FiscalRepository:
         Obter referências por âmbito
 
         Args:
-            scope: Âmbito (NACIONAL, SÃO PAULO, PERNAMBUCO)
+            scope: Âmbito (FEDERAL, ESTADUAL, MUNICIPAL)
 
         Returns:
             Lista de referências
@@ -708,9 +708,9 @@ class FiscalRepository:
 
         cursor.execute("""
             SELECT *
-            FROM legal_references
+            FROM legal_refs
             WHERE scope = ?
-            ORDER BY category, title
+            ORDER BY ref_type, title
         """, (scope,))
 
         rows = cursor.fetchall()
