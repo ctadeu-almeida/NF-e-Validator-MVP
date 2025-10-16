@@ -339,49 +339,75 @@ class NFeCSVParser:
 
     def _parse_item(self, row: pd.Series) -> NFeItem:
         """Parsear item da NF-e - permite dados parciais"""
+
+        # Helper para conversão segura de valores
+        def safe_str(val, default=''):
+            """Converter para string, tratando NaN"""
+            if pd.isna(val):
+                return default
+            return str(val).strip()
+
+        def safe_decimal(val, default='0'):
+            """Converter para Decimal, tratando NaN"""
+            if pd.isna(val):
+                return Decimal(default)
+            try:
+                return Decimal(str(val).replace(',', '.'))
+            except:
+                return Decimal(default)
+
+        def safe_int(val, default=1):
+            """Converter para int, tratando NaN"""
+            if pd.isna(val):
+                return default
+            try:
+                return int(float(val))
+            except:
+                return default
+
         # Parsear impostos (valores padrão se não disponíveis)
         impostos = ImpostoItem(
             # ICMS
-            icms_cst=row.get('icms_cst', ''),
-            icms_base=Decimal(row.get('icms_base', '0')),
-            icms_aliquota=Decimal(row.get('icms_aliquota', '0')),
-            icms_valor=Decimal(row.get('icms_valor', '0')),
+            icms_cst=safe_str(row.get('icms_cst', '')),
+            icms_base=safe_decimal(row.get('icms_base', '0')),
+            icms_aliquota=safe_decimal(row.get('icms_aliquota', '0')),
+            icms_valor=safe_decimal(row.get('icms_valor', '0')),
 
             # IPI
-            ipi_cst=row.get('ipi_cst', ''),
-            ipi_base=Decimal(row.get('ipi_base', '0')),
-            ipi_aliquota=Decimal(row.get('ipi_aliquota', '0')),
-            ipi_valor=Decimal(row.get('ipi_valor', '0')),
+            ipi_cst=safe_str(row.get('ipi_cst', '')),
+            ipi_base=safe_decimal(row.get('ipi_base', '0')),
+            ipi_aliquota=safe_decimal(row.get('ipi_aliquota', '0')),
+            ipi_valor=safe_decimal(row.get('ipi_valor', '0')),
 
             # PIS (permite ausência)
-            pis_cst=row.get('pis_cst', ''),
-            pis_base=Decimal(row.get('pis_base', row.get('valor_total', '0'))),
-            pis_aliquota=Decimal(row.get('pis_aliquota', '0')),
-            pis_valor=Decimal(row.get('pis_valor', '0')),
+            pis_cst=safe_str(row.get('pis_cst', '')),
+            pis_base=safe_decimal(row.get('pis_base', row.get('valor_total', '0'))),
+            pis_aliquota=safe_decimal(row.get('pis_aliquota', '0')),
+            pis_valor=safe_decimal(row.get('pis_valor', '0')),
 
             # COFINS (permite ausência)
-            cofins_cst=row.get('cofins_cst', ''),
-            cofins_base=Decimal(row.get('cofins_base', row.get('valor_total', '0'))),
-            cofins_aliquota=Decimal(row.get('cofins_aliquota', '0')),
-            cofins_valor=Decimal(row.get('cofins_valor', '0')),
+            cofins_cst=safe_str(row.get('cofins_cst', '')),
+            cofins_base=safe_decimal(row.get('cofins_base', row.get('valor_total', '0'))),
+            cofins_aliquota=safe_decimal(row.get('cofins_aliquota', '0')),
+            cofins_valor=safe_decimal(row.get('cofins_valor', '0')),
         )
 
         # Criar item (valores padrão se ausentes)
         item = NFeItem(
-            numero_item=int(row.get('numero_item', 1)),
-            codigo_produto=row.get('codigo_produto', ''),
-            descricao=row.get('descricao', ''),
-            ncm=row.get('ncm', ''),
-            cfop=row.get('cfop', ''),
-            unidade=row.get('unidade', ''),
-            quantidade=Decimal(row.get('quantidade', '0')),
-            valor_unitario=Decimal(row.get('valor_unitario', '0')),
-            valor_total=Decimal(row.get('valor_total', '0')),
-            valor_desconto=Decimal(row.get('valor_desconto', '0')),
-            valor_frete=Decimal(row.get('valor_frete', '0')),
+            numero_item=safe_int(row.get('numero_item', 1)),
+            codigo_produto=safe_str(row.get('codigo_produto', '')),
+            descricao=safe_str(row.get('descricao', '')),
+            ncm=safe_str(row.get('ncm', '')),
+            cfop=safe_str(row.get('cfop', '')),
+            unidade=safe_str(row.get('unidade', '')),
+            quantidade=safe_decimal(row.get('quantidade', '0')),
+            valor_unitario=safe_decimal(row.get('valor_unitario', '0')),
+            valor_total=safe_decimal(row.get('valor_total', '0')),
+            valor_desconto=safe_decimal(row.get('valor_desconto', '0')),
+            valor_frete=safe_decimal(row.get('valor_frete', '0')),
             impostos=impostos,
-            tipo_acucar=row.get('tipo_acucar', None),
-            icumsa=row.get('icumsa', None),
+            tipo_acucar=safe_str(row.get('tipo_acucar', None)) if row.get('tipo_acucar') else None,
+            icumsa=safe_str(row.get('icumsa', None)) if row.get('icumsa') else None,
         )
 
         return item

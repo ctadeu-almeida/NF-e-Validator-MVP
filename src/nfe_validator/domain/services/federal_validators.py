@@ -212,6 +212,18 @@ class PISCOFINSValidator:
         # Obter regra do CST
         pis_rule = self.repo.get_pis_cofins_rule(pis.pis_cst)
         if not pis_rule:
+            # WARNING: Sem regra PIS no repositório
+            errors.append(ValidationError(
+                code='PIS_999',
+                field='pis_cst',
+                message=f'CST PIS {pis.pis_cst} sem regra cadastrada no repositório - validação de alíquota não realizada',
+                severity=Severity.WARNING,
+                actual_value=pis.pis_cst,
+                expected_value='Regra cadastrada na base de dados',
+                legal_reference='Sistema de Validação',
+                item_numero=item.numero_item,
+                suggestion='Verifique se o CST está correto ou adicione regra em base_validacao.csv'
+            ))
             return errors
 
         # 2. Validar alíquota (se CST for tributado)
@@ -301,6 +313,18 @@ class PISCOFINSValidator:
         # Obter regra
         cofins_rule = self.repo.get_pis_cofins_rule(cofins.cofins_cst)
         if not cofins_rule:
+            # WARNING: Sem regra COFINS no repositório
+            errors.append(ValidationError(
+                code='COFINS_999',
+                field='cofins_cst',
+                message=f'CST COFINS {cofins.cofins_cst} sem regra cadastrada no repositório - validação de alíquota não realizada',
+                severity=Severity.WARNING,
+                actual_value=cofins.cofins_cst,
+                expected_value='Regra cadastrada na base de dados',
+                legal_reference='Sistema de Validação',
+                item_numero=item.numero_item,
+                suggestion='Verifique se o CST está correto ou adicione regra em base_validacao.csv'
+            ))
             return errors
 
         # 2. Validar alíquota

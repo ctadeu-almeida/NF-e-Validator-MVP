@@ -146,8 +146,9 @@ class NCMReActAgent:
 
             return output
 
-        def list_all_sugar_ncms() -> str:
+        def list_all_sugar_ncms(query: str = "") -> str:
             """Listar todos os NCMs de açúcar disponíveis"""
+            # Ignora o argumento query (LangChain sempre passa, mesmo vazio)
             ncms = self.repo.get_all_sugar_ncms()
 
             output = f"Total de NCMs de açúcar: {len(ncms)}\n\n"

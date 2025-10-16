@@ -809,6 +809,7 @@ def render_nfe_validator_tab():
 
                     # Validate all NF-es (RÁPIDO - apenas CSV + SQLite, SEM LLM)
                     validated_nfes = []
+                    validation_errors_count = 0
 
                     # Progress bar for validation
                     progress_bar = st.progress(0)
@@ -816,12 +817,35 @@ def render_nfe_validator_tab():
 
                     for i, nfe in enumerate(nfes):
                         status_text.text(f"⚡ Validando NF-e {i+1}/{len(nfes)} (análise rápida - local)...")
-                        validated_nfe = validate_nfe_with_pipeline(nfe, repo, use_ai_agent=False, api_key=None)
-                        validated_nfes.append(validated_nfe)
+
+                        try:
+                            validated_nfe = validate_nfe_with_pipeline(nfe, repo, use_ai_agent=False, api_key=None)
+                            validated_nfes.append(validated_nfe)
+                        except Exception as e:
+                            # Registrar erro mas continuar validação
+                            validation_errors_count += 1
+                            st.warning(f"⚠️ Erro ao validar NF-e {nfe.numero}: {str(e)}")
+
+                            # Adicionar erro ao objeto NF-e
+                            from nfe_validator.domain.entities.nfe_entity import ValidationError, Severity
+                            nfe.validation_errors.append(ValidationError(
+                                code='SYSTEM_ERROR',
+                                field='nfe',
+                                message=f'Erro inesperado na validação: {str(e)}',
+                                severity=Severity.CRITICAL,
+                                actual_value=str(e),
+                                legal_reference='Sistema de Validação'
+                            ))
+                            validated_nfes.append(nfe)
+
                         progress_bar.progress((i + 1) / len(nfes))
 
                     progress_bar.empty()
                     status_text.empty()
+
+                    # Mostrar resumo de erros de sistema
+                    if validation_errors_count > 0:
+                        st.warning(f"⚠️ {validation_errors_count} NF-e(s) apresentaram erro de sistema durante validação")
 
                     # Store in session state
                     st.session_state.nfe_results = validated_nfes
@@ -947,6 +971,26 @@ def render_nfe_validator_tab():
         # Summary metrics
         from nfe_validator.domain.entities.nfe_entity import Severity
 
+        # Calcular métricas de cobertura
+        total_items = len(nfe.items)
+
+        # Itens validados por tipo (conta erros específicos ou sucesso)
+        ncm_validated = sum(1 for item in nfe.items if item.ncm)
+        pis_validated = 0
+        cofins_validated = 0
+        cfop_validated = sum(1 for item in nfe.items if item.cfop)
+
+        # Contar validações PIS/COFINS (se não tem erro 999, foi validado)
+        for item in nfe.items:
+            item_errors = [e for e in nfe.validation_errors if e.item_numero == item.numero_item]
+            has_pis_999 = any(e.code == 'PIS_999' for e in item_errors)
+            has_cofins_999 = any(e.code == 'COFINS_999' for e in item_errors)
+
+            if not has_pis_999 and item.impostos.pis_cst:
+                pis_validated += 1
+            if not has_cofins_999 and item.impostos.cofins_cst:
+                cofins_validated += 1
+
         col1, col2, col3, col4 = st.columns(4)
 
         critical = sum(1 for e in nfe.validation_errors if e.severity == Severity.CRITICAL)
@@ -962,6 +1006,33 @@ def render_nfe_validator_tab():
         with col4:
             impact = nfe.get_total_financial_impact()
             st.metric("💰 Impacto", f"R$ {impact:,.2f}")
+
+        # Métricas de cobertura de validação
+        st.markdown("#### 📊 Cobertura de Validação")
+        col_cov1, col_cov2, col_cov3, col_cov4 = st.columns(4)
+
+        with col_cov1:
+            ncm_pct = (ncm_validated / total_items * 100) if total_items > 0 else 0
+            st.metric("NCM Validado", f"{ncm_validated}/{total_items}", f"{ncm_pct:.0f}%")
+        with col_cov2:
+            cfop_pct = (cfop_validated / total_items * 100) if total_items > 0 else 0
+            st.metric("CFOP Validado", f"{cfop_validated}/{total_items}", f"{cfop_pct:.0f}%")
+        with col_cov3:
+            pis_pct = (pis_validated / total_items * 100) if total_items > 0 else 0
+            st.metric("PIS Validado", f"{pis_validated}/{total_items}", f"{pis_pct:.0f}%")
+        with col_cov4:
+            cofins_pct = (cofins_validated / total_items * 100) if total_items > 0 else 0
+            st.metric("COFINS Validado", f"{cofins_validated}/{total_items}", f"{cofins_pct:.0f}%")
+
+        # Alerta se cobertura baixa
+        if pis_validated < total_items or cofins_validated < total_items:
+            missing_rules = total_items - min(pis_validated, cofins_validated)
+            st.info(f"""
+            ℹ️ **{missing_rules} item(ns)** sem regra PIS/COFINS cadastrada na base de dados.
+            Para validação completa, adicione as regras em `base_validacao.csv` ou verifique se os CSTs estão corretos.
+            """)
+
+        st.markdown("---")
 
         # Validation status
         if critical > 0 or error > 0:
@@ -1018,22 +1089,45 @@ def render_nfe_validator_tab():
                     items_with_errors = list(set([e.item_numero for e in ncm_errors if e.item_numero]))
 
                     if items_with_errors:
-                        selected_item = st.selectbox(
-                            "Selecione um item para validar com IA:",
+                        # Criar mapeamento de item_numero para item completo
+                        # Normalizar tipos para int
+                        items_with_errors = [int(x) if not isinstance(x, int) else x for x in items_with_errors]
+                        item_map = {int(item.numero_item): item for item in nfe.items if int(item.numero_item) in items_with_errors}
+
+                        def format_item_option(x):
+                            """Format item option for selectbox"""
+                            try:
+                                item = item_map[int(x)]
+                                desc = item.descricao[:50] if item.descricao else "Sem descrição"
+                                ncm = item.ncm if item.ncm else "N/A"
+                                return f"Item #{x} - {desc}... (NCM: {ncm})"
+                            except:
+                                return f"Item #{x}"
+
+                        selected_items = st.multiselect(
+                            "Selecione os itens para validar com IA:",
                             items_with_errors,
-                            format_func=lambda x: f"Item #{x}"
+                            default=[],
+                            format_func=format_item_option
                         )
 
-                        if st.button("🤖 Validar com Agente IA", type="primary"):
-                            with st.spinner(f"Consultando Gemini 2.5 para Item #{selected_item}..."):
-                                result = validate_nfe_item_with_ai(nfe, selected_item, repo, api_key)
+                        if st.button("🤖 Validar com Agente IA", type="primary", disabled=len(selected_items) == 0):
+                            if 'ai_ncm_suggestions' not in st.session_state:
+                                st.session_state.ai_ncm_suggestions = {}
 
-                                # Store in session state
-                                if 'ai_ncm_suggestions' not in st.session_state:
-                                    st.session_state.ai_ncm_suggestions = {}
-                                st.session_state.ai_ncm_suggestions[selected_item] = result
+                            # Validação em lote
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
 
-                                st.rerun()
+                            for i, item_num in enumerate(selected_items):
+                                status_text.text(f"🤖 Consultando Gemini 2.5 para Item #{item_num} ({i+1}/{len(selected_items)})...")
+                                result = validate_nfe_item_with_ai(nfe, item_num, repo, api_key)
+                                st.session_state.ai_ncm_suggestions[item_num] = result
+                                progress_bar.progress((i + 1) / len(selected_items))
+
+                            progress_bar.empty()
+                            status_text.empty()
+                            st.rerun()
                 else:
                     st.success("✅ Nenhum erro de NCM detectado na validação local")
 
