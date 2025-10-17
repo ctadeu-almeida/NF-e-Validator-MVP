@@ -114,22 +114,44 @@ class NFeCSVParser:
         self.parse_errors = []
 
         try:
-            # Ler CSV completo (sem limite de linhas)
-            df = pd.read_csv(csv_path, dtype=str, encoding='utf-8')
+            # Ler CSV completo forçando tipos importantes como string
+            dtype_spec = {
+                'chave_acesso': str,
+                'item_pis_cst': str,
+                'item_cofins_cst': str,
+                'pis_cst': str,
+                'cofins_cst': str,
+                'item_ncm': str,
+                'ncm': str,
+                'item_cfop': str,
+                'cfop': str
+            }
+            df = pd.read_csv(csv_path, dtype=dtype_spec, encoding='utf-8', keep_default_na=False, na_values=[''])
         except UnicodeDecodeError:
             # Tentar encoding alternativo
             try:
-                df = pd.read_csv(csv_path, dtype=str, encoding='latin-1')
+                dtype_spec = {
+                    'chave_acesso': str,
+                    'item_pis_cst': str,
+                    'item_cofins_cst': str,
+                    'pis_cst': str,
+                    'cofins_cst': str,
+                    'item_ncm': str,
+                    'ncm': str,
+                    'item_cfop': str,
+                    'cfop': str
+                }
+                df = pd.read_csv(csv_path, dtype=dtype_spec, encoding='latin-1', keep_default_na=False, na_values=[''])
             except Exception as e:
                 raise CSVParserException(f"Erro ao ler CSV: {e}")
         except Exception as e:
             raise CSVParserException(f"Erro ao ler CSV: {e}")
 
-        # Validar colunas obrigatórias
-        self._validate_columns(df)
-
-        # Normalizar dados
+        # Normalizar dados PRIMEIRO (inclui mapeamento de colunas)
         df = self._normalize_dataframe(df)
+
+        # DEPOIS validar colunas obrigatórias
+        self._validate_columns(df)
 
         # Agrupar por NF-e (chave_acesso)
         nfes = []
@@ -182,24 +204,75 @@ class NFeCSVParser:
         """Normalizar dados do DataFrame"""
         df = df.copy()
 
+        # Mapear nomes de colunas alternativos
+        column_mapping = {
+            'numero_nf': 'numero_nfe',
+            'emitente_cnpj': 'cnpj_emitente',
+            'emitente_razao_social': 'razao_social_emitente',
+            'emitente_uf': 'uf_emitente',
+            'destinatario_cnpj': 'cnpj_destinatario',
+            'destinatario_razao_social': 'razao_social_destinatario',
+            'destinatario_uf': 'uf_destinatario',
+            'item_numero': 'numero_item',
+            'item_codigo': 'codigo_produto',
+            'item_descricao': 'descricao',
+            'item_ncm': 'ncm',
+            'item_cfop': 'cfop',
+            'item_unidade': 'unidade',
+            'item_quantidade': 'quantidade',
+            'item_valor_unitario': 'valor_unitario',
+            'item_valor_total': 'valor_total',
+            'item_icms_base': 'icms_base',
+            'item_icms_aliquota': 'icms_aliquota',
+            'item_icms_valor': 'icms_valor',
+            'item_ipi_base': 'ipi_base',
+            'item_ipi_aliquota': 'ipi_aliquota',
+            'item_ipi_valor': 'ipi_valor',
+            'item_pis_base': 'pis_base',
+            'item_pis_aliquota': 'pis_aliquota',
+            'item_pis_valor': 'pis_valor',
+            'item_pis_cst': 'pis_cst',
+            'item_cofins_base': 'cofins_base',
+            'item_cofins_aliquota': 'cofins_aliquota',
+            'item_cofins_valor': 'cofins_valor',
+            'item_cofins_cst': 'cofins_cst',
+        }
+        df.rename(columns=column_mapping, inplace=True)
+
+        # Remover colunas duplicadas (manter a primeira)
+        df = df.loc[:, ~df.columns.duplicated()]
+
+        # Garantir que chave_acesso seja string pura
+        if 'chave_acesso' in df.columns:
+            df['chave_acesso'] = df['chave_acesso'].astype(str).str.replace('.0', '', regex=False)
+
         # Remover espaços em branco
         for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].str.strip()
+            try:
+                if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.strip()
+            except:
+                pass
 
         # Normalizar NCM (8 dígitos)
         if 'ncm' in df.columns:
-            df['ncm'] = df['ncm'].apply(self._normalize_ncm)
+            df['ncm'] = df['ncm'].astype(str).apply(self._normalize_ncm)
 
         # Normalizar CFOP (4 dígitos)
         if 'cfop' in df.columns:
-            df['cfop'] = df['cfop'].apply(self._normalize_cfop)
+            df['cfop'] = df['cfop'].astype(str).apply(self._normalize_cfop)
 
         # Normalizar CNPJ (14 dígitos, apenas números)
         if 'cnpj_emitente' in df.columns:
-            df['cnpj_emitente'] = df['cnpj_emitente'].apply(self._normalize_cnpj)
+            df['cnpj_emitente'] = df['cnpj_emitente'].astype(str).apply(self._normalize_cnpj)
         if 'cnpj_destinatario' in df.columns:
-            df['cnpj_destinatario'] = df['cnpj_destinatario'].apply(self._normalize_cnpj)
+            df['cnpj_destinatario'] = df['cnpj_destinatario'].astype(str).apply(self._normalize_cnpj)
+
+        # Normalizar CST PIS/COFINS (2 dígitos)
+        if 'pis_cst' in df.columns:
+            df['pis_cst'] = df['pis_cst'].astype(str).apply(self._normalize_cst)
+        if 'cofins_cst' in df.columns:
+            df['cofins_cst'] = df['cofins_cst'].astype(str).apply(self._normalize_cst)
 
         # Normalizar valores decimais
         decimal_columns = [
@@ -211,7 +284,7 @@ class NFeCSVParser:
 
         for col in decimal_columns:
             if col in df.columns:
-                df[col] = df[col].apply(self._normalize_decimal)
+                df[col] = df[col].astype(str).apply(self._normalize_decimal)
 
         return df
 
@@ -260,6 +333,22 @@ class NFeCSVParser:
             cnpj_clean = cnpj_clean.zfill(14)
 
         return cnpj_clean
+
+    def _normalize_cst(self, cst: str) -> str:
+        """Normalizar CST para 2 dígitos"""
+        if pd.isna(cst) or not cst or cst == '':
+            return ''
+
+        # Remover espaços
+        cst_clean = str(cst).strip()
+
+        # Garantir 2 dígitos (preencher com zero à esquerda)
+        if len(cst_clean) == 1 and cst_clean.isdigit():
+            cst_clean = cst_clean.zfill(2)
+        elif len(cst_clean) > 2:
+            cst_clean = cst_clean[:2]
+
+        return cst_clean
 
     def _normalize_decimal(self, value: str) -> str:
         """Normalizar valor decimal"""
@@ -314,18 +403,23 @@ class NFeCSVParser:
         # Parsear data de emissão
         data_emissao = self._parse_date(first_row['data_emissao'])
 
+        # Determinar natureza da operação
+        natureza = first_row.get('natureza_operacao', '')
+        if pd.isna(natureza) or not natureza or natureza == 'nan':
+            natureza = 'Venda de mercadoria'
+
         # Criar entidade NF-e
         nfe = NFeEntity(
-            chave_acesso=first_row['chave_acesso'],
-            numero=first_row['numero_nfe'],
-            serie=first_row['serie'],
+            chave_acesso=str(first_row['chave_acesso']),
+            numero=str(first_row['numero_nfe']),
+            serie=str(first_row['serie']),
             data_emissao=data_emissao,
             emitente=emitente,
             destinatario=destinatario,
             items=items,
             totais=totais,
             cfop_nota=cfop_nota,
-            natureza_operacao=first_row.get('natureza_operacao', 'Venda de mercadoria'),
+            natureza_operacao=natureza,
             uf_origem=emitente.uf,
             uf_destino=destinatario.uf,
             validation_status=ValidationStatus.PENDING,

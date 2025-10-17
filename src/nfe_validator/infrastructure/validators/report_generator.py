@@ -14,6 +14,7 @@ Incluir:
 """
 
 import json
+import numpy as np
 from typing import Dict, List, Optional
 from datetime import datetime
 from decimal import Decimal
@@ -21,6 +22,20 @@ from decimal import Decimal
 from ...domain.entities.nfe_entity import (
     NFeEntity, AuditReport, ValidationError, Severity
 )
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """Encoder JSON que converte tipos numpy/pandas para tipos Python nativos"""
+    def default(self, obj):
+        if isinstance(obj, (np.integer, np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32)):
+            return float(obj)
+        elif isinstance(obj, (np.ndarray,)):
+            return obj.tolist()
+        elif isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
 
 
 class ReportGenerator:
@@ -51,45 +66,45 @@ class ReportGenerator:
                 'validator': 'NF-e Validator MVP - Setor Sucroalcooleiro'
             },
             'nfe_info': {
-                'chave_acesso': nfe.chave_acesso,
-                'numero': nfe.numero,
-                'serie': nfe.serie,
+                'chave_acesso': str(nfe.chave_acesso),
+                'numero': str(nfe.numero),
+                'serie': str(nfe.serie),
                 'data_emissao': nfe.data_emissao.isoformat(),
                 'emitente': {
-                    'cnpj': nfe.emitente.cnpj,
-                    'razao_social': nfe.emitente.razao_social,
-                    'uf': nfe.emitente.uf
+                    'cnpj': str(nfe.emitente.cnpj),
+                    'razao_social': str(nfe.emitente.razao_social),
+                    'uf': str(nfe.emitente.uf)
                 },
                 'destinatario': {
-                    'cnpj': nfe.destinatario.cnpj,
-                    'razao_social': nfe.destinatario.razao_social,
-                    'uf': nfe.destinatario.uf
+                    'cnpj': str(nfe.destinatario.cnpj),
+                    'razao_social': str(nfe.destinatario.razao_social),
+                    'uf': str(nfe.destinatario.uf)
                 },
                 'totais': {
-                    'valor_produtos': float(nfe.totais.valor_produtos),
-                    'valor_total_nota': float(nfe.totais.valor_total_nota),
-                    'valor_pis': float(nfe.totais.valor_pis),
-                    'valor_cofins': float(nfe.totais.valor_cofins),
+                    'valor_produtos': float(nfe.totais.valor_produtos) if nfe.totais.valor_produtos else 0.0,
+                    'valor_total_nota': float(nfe.totais.valor_total_nota) if nfe.totais.valor_total_nota else 0.0,
+                    'valor_pis': float(nfe.totais.valor_pis) if nfe.totais.valor_pis else 0.0,
+                    'valor_cofins': float(nfe.totais.valor_cofins) if nfe.totais.valor_cofins else 0.0,
                 },
                 'operacao': {
-                    'cfop': nfe.cfop_nota,
-                    'natureza': nfe.natureza_operacao,
+                    'cfop': str(nfe.cfop_nota) if nfe.cfop_nota else '',
+                    'natureza': str(nfe.natureza_operacao) if nfe.natureza_operacao else '',
                     'tipo': 'INTERESTADUAL' if nfe.is_interstate() else 'INTERNA',
-                    'uf_origem': nfe.uf_origem,
-                    'uf_destino': nfe.uf_destino
+                    'uf_origem': str(nfe.uf_origem) if nfe.uf_origem else '',
+                    'uf_destino': str(nfe.uf_destino) if nfe.uf_destino else ''
                 }
             },
             'validation_summary': {
-                'status': nfe.validation_status.value,
-                'total_errors': audit_report.total_errors,
+                'status': str(nfe.validation_status.value),
+                'total_errors': int(audit_report.total_errors),
                 'by_severity': {
-                    'critical': audit_report.critical_count,
-                    'error': audit_report.error_count,
-                    'warning': audit_report.warning_count,
-                    'info': audit_report.info_count
+                    'critical': int(audit_report.critical_count),
+                    'error': int(audit_report.error_count),
+                    'warning': int(audit_report.warning_count),
+                    'info': int(audit_report.info_count)
                 },
                 'financial_impact': {
-                    'total': float(audit_report.total_financial_impact),
+                    'total': float(audit_report.total_financial_impact) if audit_report.total_financial_impact else 0.0,
                     'currency': 'BRL',
                     'description': 'Economia potencial se erros forem corrigidos'
                 }
@@ -305,19 +320,19 @@ class ReportGenerator:
         """Formatar erros para JSON"""
         return [
             {
-                'code': e.code,
-                'field': e.field,
-                'message': e.message,
-                'severity': e.severity.value,
-                'item_numero': e.item_numero,
-                'actual_value': e.actual_value,
-                'expected_value': e.expected_value,
-                'suggestion': e.suggestion,
-                'legal_reference': e.legal_reference,
-                'legal_article': e.legal_article,
-                'financial_impact': float(e.financial_impact) if e.financial_impact else 0,
-                'can_auto_correct': e.can_auto_correct,
-                'corrected_value': e.corrected_value
+                'code': str(e.code) if e.code else '',
+                'field': str(e.field) if e.field else '',
+                'message': str(e.message) if e.message else '',
+                'severity': str(e.severity.value) if e.severity else '',
+                'item_numero': int(e.item_numero) if e.item_numero else None,
+                'actual_value': str(e.actual_value) if e.actual_value else None,
+                'expected_value': str(e.expected_value) if e.expected_value else None,
+                'suggestion': str(e.suggestion) if e.suggestion else None,
+                'legal_reference': str(e.legal_reference) if e.legal_reference else None,
+                'legal_article': str(e.legal_article) if e.legal_article else None,
+                'financial_impact': float(e.financial_impact) if e.financial_impact else 0.0,
+                'can_auto_correct': bool(e.can_auto_correct),
+                'corrected_value': str(e.corrected_value) if e.corrected_value else None
             }
             for e in errors
         ]
@@ -334,13 +349,13 @@ class ReportGenerator:
         """Analisar itens para JSON"""
         return [
             {
-                'numero_item': item.numero_item,
-                'descricao': item.descricao,
-                'ncm': item.ncm,
-                'cfop': item.cfop,
-                'valor_total': float(item.valor_total),
+                'numero_item': int(item.numero_item) if item.numero_item else 0,
+                'descricao': str(item.descricao) if item.descricao else '',
+                'ncm': str(item.ncm) if item.ncm else '',
+                'cfop': str(item.cfop) if item.cfop else '',
+                'valor_total': float(item.valor_total) if item.valor_total else 0.0,
                 'errors_count': len([e for e in nfe.validation_errors if e.item_numero == item.numero_item]),
-                'is_sugar': nfe.is_sugar_product(item)
+                'is_sugar': bool(nfe.is_sugar_product(item))
             }
             for item in nfe.items
         ]
