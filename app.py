@@ -548,6 +548,139 @@ def load_and_analyze_data(uploaded_file, agent):
                 pass
         return None
 
+def _generate_consolidated_markdown_report(nfes_com_problemas, total_critical, total_errors, total_warnings, total_impact):
+    """Gera relatório consolidado em Markdown de todas as NF-es com problemas"""
+    from datetime import datetime
+    from nfe_validator.domain.entities.nfe_entity import Severity
+
+    md = []
+    md.append("# 📊 RELATÓRIO CONSOLIDADO - NF-E VALIDATOR")
+    md.append("")
+    md.append(f"**Data de Geração:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    md.append(f"**Total de NF-es Analisadas:** {len(nfes_com_problemas)}")
+    md.append("")
+    md.append("---")
+    md.append("")
+
+    # Resumo Executivo
+    md.append("## 📈 RESUMO EXECUTIVO")
+    md.append("")
+    md.append(f"- 🔴 **Erros Críticos:** {total_critical}")
+    md.append(f"- 🟠 **Erros:** {total_errors}")
+    md.append(f"- 🟡 **Avisos:** {total_warnings}")
+    md.append(f"- 💰 **Impacto Financeiro Total:** R$ {total_impact:,.2f}")
+    md.append("")
+    md.append("---")
+    md.append("")
+
+    # Organizar por severidade
+    nfes_criticas = [nfe for nfe in nfes_com_problemas if any(e.severity == Severity.CRITICAL for e in nfe.validation_errors)]
+    nfes_erro = [nfe for nfe in nfes_com_problemas if any(e.severity == Severity.ERROR for e in nfe.validation_errors) and nfe not in nfes_criticas]
+    nfes_aviso = [nfe for nfe in nfes_com_problemas if nfe not in nfes_criticas and nfe not in nfes_erro]
+
+    # Seção de Críticos
+    if nfes_criticas:
+        md.append(f"## 🔴 ERROS CRÍTICOS ({len(nfes_criticas)} NF-e(s))")
+        md.append("")
+        md.append("**⚠️ AÇÃO IMEDIATA NECESSÁRIA**")
+        md.append("")
+
+        for nfe in nfes_criticas:
+            md.append(f"### NF-e {nfe.numero}")
+            md.append("")
+            md.append(f"- **Emitente:** {nfe.emitente.razao_social}")
+            md.append(f"- **CNPJ:** {nfe.emitente.cnpj}")
+            md.append(f"- **Chave de Acesso:** `{nfe.chave_acesso}`")
+            md.append(f"- **Impacto Financeiro:** R$ {nfe.get_total_financial_impact():,.2f}")
+            md.append("")
+
+            critical_errors = [e for e in nfe.validation_errors if e.severity == Severity.CRITICAL]
+            md.append(f"**Problemas Detectados:** {len(critical_errors)}")
+            md.append("")
+
+            for i, error in enumerate(critical_errors, 1):
+                md.append(f"#### {i}. {error.message}")
+                md.append(f"- **Campo:** {error.field}")
+                md.append(f"- **Valor Atual:** {error.actual_value or 'N/A'}")
+                md.append(f"- **Valor Esperado:** {error.expected_value or 'N/A'}")
+                md.append(f"- **Base Legal:** {error.legal_reference or 'N/A'}")
+                if error.financial_impact:
+                    md.append(f"- **Impacto Financeiro:** R$ {error.financial_impact:,.2f}")
+                md.append("")
+
+            md.append("---")
+            md.append("")
+
+    # Seção de Erros
+    if nfes_erro:
+        md.append(f"## 🟠 ERROS ({len(nfes_erro)} NF-e(s))")
+        md.append("")
+        md.append("**⚠️ CORREÇÃO NECESSÁRIA**")
+        md.append("")
+
+        for nfe in nfes_erro:
+            md.append(f"### NF-e {nfe.numero}")
+            md.append("")
+            md.append(f"- **Emitente:** {nfe.emitente.razao_social}")
+            md.append(f"- **CNPJ:** {nfe.emitente.cnpj}")
+            md.append(f"- **Chave de Acesso:** `{nfe.chave_acesso}`")
+            md.append(f"- **Impacto Financeiro:** R$ {nfe.get_total_financial_impact():,.2f}")
+            md.append("")
+
+            error_list = [e for e in nfe.validation_errors if e.severity == Severity.ERROR]
+            md.append(f"**Problemas Detectados:** {len(error_list)}")
+            md.append("")
+
+            for i, error in enumerate(error_list, 1):
+                md.append(f"#### {i}. {error.message}")
+                md.append(f"- **Campo:** {error.field}")
+                md.append(f"- **Valor Atual:** {error.actual_value or 'N/A'}")
+                md.append(f"- **Valor Esperado:** {error.expected_value or 'N/A'}")
+                if error.financial_impact:
+                    md.append(f"- **Impacto Financeiro:** R$ {error.financial_impact:,.2f}")
+                md.append("")
+
+            md.append("---")
+            md.append("")
+
+    # Seção de Avisos
+    if nfes_aviso:
+        md.append(f"## 🟡 AVISOS ({len(nfes_aviso)} NF-e(s))")
+        md.append("")
+        md.append("**ℹ️ REVISÃO RECOMENDADA**")
+        md.append("")
+
+        for nfe in nfes_aviso:
+            md.append(f"### NF-e {nfe.numero}")
+            md.append("")
+            md.append(f"- **Emitente:** {nfe.emitente.razao_social}")
+            md.append(f"- **CNPJ:** {nfe.emitente.cnpj}")
+            md.append(f"- **Chave de Acesso:** `{nfe.chave_acesso}`")
+            md.append("")
+
+            warning_list = [e for e in nfe.validation_errors if e.severity == Severity.WARNING]
+            md.append(f"**Observações:** {len(warning_list)}")
+            md.append("")
+
+            for i, warning in enumerate(warning_list, 1):
+                md.append(f"#### {i}. {warning.message}")
+                md.append(f"- **Campo:** {warning.field}")
+                md.append(f"- **Valor Atual:** {warning.actual_value or 'N/A'}")
+                md.append("")
+
+            md.append("---")
+            md.append("")
+
+    # Rodapé
+    md.append("---")
+    md.append("")
+    md.append("**Relatório gerado por:** NF-e Validator MVP - Setor Sucroalcooleiro")
+    md.append("")
+    md.append("🤖 *Powered by Claude Code*")
+
+    return "\n".join(md)
+
+
 def validate_nfe_with_pipeline(nfe, repo, use_ai_agent=False, api_key=None):
     """
     Execute full NF-e validation pipeline
@@ -1043,8 +1176,9 @@ def render_nfe_validator_tab():
             st.success("✅ NF-e VÁLIDA")
 
         # Tabs for different views
-        tab_report, tab_json, tab_ai, tab_legal, tab_download = st.tabs([
-            "📋 Relatório",
+        tab_report, tab_consolidated, tab_json, tab_ai, tab_legal, tab_download = st.tabs([
+            "📋 Relatório Individual",
+            "📊 Relatório Consolidado",
             "📄 JSON",
             "🤖 Sugestões IA",
             "📚 Fontes Legais",
@@ -1056,6 +1190,121 @@ def render_nfe_validator_tab():
             generator = ReportGenerator()
             md_report = generator.generate_markdown_report(nfe)
             st.markdown(md_report, unsafe_allow_html=True)
+
+        with tab_consolidated:
+            st.subheader("📊 Relatório Consolidado - Todas as NF-es com Problemas")
+
+            # Filtrar apenas NF-es com problemas
+            nfes_com_problemas = [nfe for nfe in nfes if len(nfe.validation_errors) > 0]
+
+            if not nfes_com_problemas:
+                st.success("✅ **Excelente!** Todas as NF-es estão conformes. Nenhum problema detectado.")
+            else:
+                st.warning(f"⚠️ **{len(nfes_com_problemas)} de {len(nfes)} NF-e(s) apresentaram problemas**")
+
+                # Métricas consolidadas
+                total_critical = sum(sum(1 for e in nfe.validation_errors if e.severity == Severity.CRITICAL) for nfe in nfes_com_problemas)
+                total_errors = sum(sum(1 for e in nfe.validation_errors if e.severity == Severity.ERROR) for nfe in nfes_com_problemas)
+                total_warnings = sum(sum(1 for e in nfe.validation_errors if e.severity == Severity.WARNING) for nfe in nfes_com_problemas)
+                total_impact = sum(nfe.get_total_financial_impact() for nfe in nfes_com_problemas)
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("🔴 Total Críticos", total_critical)
+                with col2:
+                    st.metric("🟠 Total Erros", total_errors)
+                with col3:
+                    st.metric("🟡 Total Avisos", total_warnings)
+                with col4:
+                    st.metric("💰 Impacto Total", f"R$ {total_impact:,.2f}")
+
+                st.markdown("---")
+
+                # Organizar por severidade
+                nfes_criticas = [nfe for nfe in nfes_com_problemas if any(e.severity == Severity.CRITICAL for e in nfe.validation_errors)]
+                nfes_erro = [nfe for nfe in nfes_com_problemas if any(e.severity == Severity.ERROR for e in nfe.validation_errors) and nfe not in nfes_criticas]
+                nfes_aviso = [nfe for nfe in nfes_com_problemas if nfe not in nfes_criticas and nfe not in nfes_erro]
+
+                # Seção de Críticos
+                if nfes_criticas:
+                    with st.expander(f"🔴 **CRÍTICOS** ({len(nfes_criticas)} NF-e(s)) - Ação Imediata Necessária", expanded=True):
+                        for nfe in nfes_criticas:
+                            st.markdown(f"### NF-e {nfe.numero} - {nfe.emitente.razao_social}")
+                            st.markdown(f"**Chave:** `{nfe.chave_acesso}`")
+
+                            critical_errors = [e for e in nfe.validation_errors if e.severity == Severity.CRITICAL]
+                            st.error(f"**{len(critical_errors)} erro(s) crítico(s) detectado(s)**")
+
+                            for error in critical_errors:
+                                st.markdown(f"""
+                                - **Campo:** {error.field}
+                                - **Problema:** {error.message}
+                                - **Valor atual:** {error.actual_value or 'N/A'}
+                                - **Esperado:** {error.expected_value or 'N/A'}
+                                - **Base legal:** {error.legal_reference or 'N/A'}
+                                """)
+
+                                if error.financial_impact:
+                                    st.warning(f"💰 Impacto financeiro: R$ {error.financial_impact:,.2f}")
+
+                            st.markdown("---")
+
+                # Seção de Erros
+                if nfes_erro:
+                    with st.expander(f"🟠 **ERROS** ({len(nfes_erro)} NF-e(s)) - Correção Necessária", expanded=False):
+                        for nfe in nfes_erro:
+                            st.markdown(f"### NF-e {nfe.numero} - {nfe.emitente.razao_social}")
+                            st.markdown(f"**Chave:** `{nfe.chave_acesso}`")
+
+                            error_list = [e for e in nfe.validation_errors if e.severity == Severity.ERROR]
+                            st.warning(f"**{len(error_list)} erro(s) detectado(s)**")
+
+                            for error in error_list:
+                                st.markdown(f"""
+                                - **Campo:** {error.field}
+                                - **Problema:** {error.message}
+                                - **Valor atual:** {error.actual_value or 'N/A'}
+                                - **Esperado:** {error.expected_value or 'N/A'}
+                                """)
+
+                                if error.financial_impact:
+                                    st.info(f"💰 Impacto financeiro: R$ {error.financial_impact:,.2f}")
+
+                            st.markdown("---")
+
+                # Seção de Avisos
+                if nfes_aviso:
+                    with st.expander(f"🟡 **AVISOS** ({len(nfes_aviso)} NF-e(s)) - Revisão Recomendada", expanded=False):
+                        for nfe in nfes_aviso:
+                            st.markdown(f"### NF-e {nfe.numero} - {nfe.emitente.razao_social}")
+                            st.markdown(f"**Chave:** `{nfe.chave_acesso}`")
+
+                            warning_list = [e for e in nfe.validation_errors if e.severity == Severity.WARNING]
+                            st.info(f"**{len(warning_list)} aviso(s) detectado(s)**")
+
+                            for warning in warning_list:
+                                st.markdown(f"""
+                                - **Campo:** {warning.field}
+                                - **Observação:** {warning.message}
+                                - **Valor atual:** {warning.actual_value or 'N/A'}
+                                """)
+
+                            st.markdown("---")
+
+                # Botão de exportação do relatório consolidado
+                st.markdown("### 💾 Exportar Relatório Consolidado")
+
+                # Gerar relatório consolidado em Markdown
+                consolidated_md = _generate_consolidated_markdown_report(nfes_com_problemas, total_critical, total_errors, total_warnings, total_impact)
+
+                col_exp1, col_exp2 = st.columns(2)
+                with col_exp1:
+                    st.download_button(
+                        label="📥 Baixar Relatório Consolidado (Markdown)",
+                        data=consolidated_md,
+                        file_name=f"relatorio_consolidado_{len(nfes_com_problemas)}_nfes.md",
+                        mime="text/markdown"
+                    )
 
         with tab_json:
             # Generate JSON report
