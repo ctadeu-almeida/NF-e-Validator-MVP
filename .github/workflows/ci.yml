@@ -83,7 +83,7 @@ jobs:
       run: safety check --json --output safety-report.json || true
 
     - name: Upload security reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: security-reports
         path: |
@@ -118,7 +118,7 @@ jobs:
         tar -czf csveda-app.tar.gz src/ requirements.txt .env.example
 
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: csveda-build
         path: csveda-app.tar.gz

@@ -86,7 +86,7 @@ jobs:
         echo "Production deployment completed"
 
     - name: Upload deployment artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: production-deployment
         path: csveda-production.tar.gz
