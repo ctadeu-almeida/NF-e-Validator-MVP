@@ -1570,23 +1570,45 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configurações")
 
-        # Seção de seleção de modelo IA
-        st.subheader("🤖 Modelo de IA")
+        # Seção de API Keys
+        st.subheader("🔑 Chaves de API")
 
-        model_option = "gemini"  # Apenas Gemini é suportado
-        st.info("🧠 **Modelo ativo:** Google Gemini com Agentes")
-
-        # Campo de API Key (apenas para Gemini)
-        api_key = None
-        if model_option == "gemini":
-            st.write("**🔑 Configuração do Gemini:**")
-            api_key = st.text_input(
-                "Chave da API Google Gemini:",
+        with st.expander("🤖 Configurar APIs de IA", expanded=True):
+            # Google Gemini API Key
+            gemini_api_key = st.text_input(
+                "Google Gemini API Key:",
                 type="password",
-                help="Obtenha sua chave em: https://makersuite.google.com/app/apikey"
+                help="Obtenha sua chave em: https://makersuite.google.com/app/apikey",
+                key="gemini_api_key_input"
             )
 
+            # OpenAI API Key
+            openai_api_key = st.text_input(
+                "OpenAI API Key:",
+                type="password",
+                help="Obtenha sua chave em: https://platform.openai.com/api-keys",
+                key="openai_api_key_input"
+            )
 
+            # Grok API Key
+            grok_api_key = st.text_input(
+                "Grok API Key:",
+                type="password",
+                help="Obtenha sua chave em: https://x.ai",
+                key="grok_api_key_input"
+            )
+
+        # Salvar API keys no session_state
+        if gemini_api_key:
+            st.session_state.gemini_api_key = gemini_api_key
+        if openai_api_key:
+            st.session_state.openai_api_key = openai_api_key
+        if grok_api_key:
+            st.session_state.grok_api_key = grok_api_key
+
+        # Modelo padrão (por enquanto apenas Gemini é suportado)
+        model_option = "gemini"
+        api_key = gemini_api_key  # Usar Gemini como padrão
 
         # Botão de inicialização
         if st.button("🚀 Inicializar Modelo", type="primary"):
@@ -1623,44 +1645,20 @@ def main():
                 st.session_state.fiscal_repository = None
                 st.session_state.nfe_validated = False
                 st.session_state.nfe_results = None
-                st.session_state.use_local_csv = True
-                st.session_state.use_ai_fallback = False
 
             # Load repository button
             if st.session_state.fiscal_repository is None:
-                # Configurações de camadas ANTES de carregar
-                with st.expander("⚙️ Configuração de Camadas de Validação", expanded=True):
-                    st.markdown("""
-                    **Sistema de Validação em Camadas:**
-
-                    O sistema consulta regras fiscais em ordem de prioridade:
-                    """)
-
-                    use_local_csv = st.checkbox(
-                        "📄 CSV Local (base_validacao.csv)",
-                        value=True,
-                        help="Prioridade MÁXIMA - Regras customizadas da empresa"
-                    )
-
-                    st.info("✅ SQLite (rules.db) - Sempre ativo - Base padrão do sistema")
-
-                    use_ai_fallback = st.checkbox(
-                        "🤖 Agente LLM (fallback)",
-                        value=False,
-                        help="Último recurso - Consulta IA quando nenhuma regra for encontrada"
-                    )
-
-                    st.session_state.use_local_csv = use_local_csv
-                    st.session_state.use_ai_fallback = use_ai_fallback
+                st.info("💡 **Todas as camadas de validação estão ativadas:**\n- 📄 CSV Local\n- 💾 SQLite\n- 🤖 Agente LLM (fallback)")
 
                 if st.button("📚 Carregar Base Fiscal", type="secondary"):
                     with st.spinner("Carregando base de dados fiscal..."):
                         try:
+                            # Todas as camadas ativadas por padrão
                             st.session_state.fiscal_repository = FiscalRepository(
-                                use_local_csv=st.session_state.use_local_csv,
-                                use_ai_fallback=st.session_state.use_ai_fallback
+                                use_local_csv=True,
+                                use_ai_fallback=True
                             )
-                            st.success("✅ Base fiscal carregada!")
+                            st.success("✅ Base fiscal carregada com todas as camadas!")
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Erro ao carregar base: {e}")
