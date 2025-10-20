@@ -1009,7 +1009,7 @@ def render_nfe_validator_tab():
     with col2:
         st.markdown("### 📋 Como Funciona")
         st.markdown("""
-        <div style="background-color: #d1ecf1; padding: 15px; border-radius: 5px; border-left: 4px solid #0c5460;">
+        <div style="background-color: #1e3a5f; padding: 15px; border-radius: 5px; border-left: 4px solid #0c5460;">
             <p style="color: white; font-weight: bold; margin: 0;">Validação Automática de NF-es:</p>
             <br>
             <p style="color: white; margin: 5px 0;">1. ✅ <strong>Dados já carregados</strong> no EDA são reutilizados</p>
