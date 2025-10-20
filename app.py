@@ -1008,27 +1008,29 @@ def render_nfe_validator_tab():
 
     with col2:
         st.markdown("### 📋 Como Funciona")
-        st.info("""
-        **Validação Automática de NF-es:**
-
-        1. ✅ **Dados já carregados** no EDA são reutilizados
-        2. 🔍 **Análise automática** de estrutura fiscal
-        3. ⚠️ **Detecção de inconsistências**:
-           - NCM × Descrição do produto
-           - Alíquotas PIS/COFINS incorretas
-           - CFOP incompatível com operação
-           - Erros de cálculo e totais
-           - Regras estaduais (SP/PE)
-
-        4. 📊 **Relatórios detalhados** com impacto financeiro
-        5. 🤖 **Agente IA** (opcional) para classificação NCM
-
-        **Colunas necessárias no CSV:**
-        - Identificação: chave_acesso, numero_nfe, serie, data_emissao
-        - Partes: cnpj/razao_social emitente e destinatário, UF
-        - Itens: ncm, cfop, quantidade, valores
-        - Impostos: pis_cst/aliquota/valor, cofins_cst/aliquota/valor
-        """)
+        st.markdown("""
+        <div style="background-color: #d1ecf1; padding: 15px; border-radius: 5px; border-left: 4px solid #0c5460;">
+            <p style="color: white; font-weight: bold; margin: 0;">Validação Automática de NF-es:</p>
+            <br>
+            <p style="color: white; margin: 5px 0;">1. ✅ <strong>Dados já carregados</strong> no EDA são reutilizados</p>
+            <p style="color: white; margin: 5px 0;">2. 🔍 <strong>Análise automática</strong> de estrutura fiscal</p>
+            <p style="color: white; margin: 5px 0;">3. ⚠️ <strong>Detecção de inconsistências:</strong></p>
+            <p style="color: white; margin: 5px 0; margin-left: 20px;">- NCM × Descrição do produto</p>
+            <p style="color: white; margin: 5px 0; margin-left: 20px;">- Alíquotas PIS/COFINS incorretas</p>
+            <p style="color: white; margin: 5px 0; margin-left: 20px;">- CFOP incompatível com operação</p>
+            <p style="color: white; margin: 5px 0; margin-left: 20px;">- Erros de cálculo e totais</p>
+            <p style="color: white; margin: 5px 0; margin-left: 20px;">- Regras estaduais (SP/PE)</p>
+            <br>
+            <p style="color: white; margin: 5px 0;">4. 📊 <strong>Relatórios detalhados</strong> com impacto financeiro</p>
+            <p style="color: white; margin: 5px 0;">5. 🤖 <strong>Agente IA</strong> (opcional) para classificação NCM</p>
+            <br>
+            <p style="color: white; font-weight: bold; margin: 5px 0;">Colunas necessárias no CSV:</p>
+            <p style="color: white; margin: 5px 0;">- <strong>Identificação:</strong> chave_acesso, numero_nfe, serie, data_emissao</p>
+            <p style="color: white; margin: 5px 0;">- <strong>Partes:</strong> cnpj/razao_social emitente e destinatário, UF</p>
+            <p style="color: white; margin: 5px 0;">- <strong>Itens:</strong> ncm, cfop, quantidade, valores</p>
+            <p style="color: white; margin: 5px 0;">- <strong>Impostos:</strong> pis_cst/aliquota/valor, cofins_cst/aliquota/valor</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     # Results section
     if st.session_state.get('nfe_validated') and st.session_state.get('nfe_results'):
