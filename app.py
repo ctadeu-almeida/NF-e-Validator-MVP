@@ -1623,6 +1623,19 @@ def main():
                         st.session_state.selected_model = model_option
                         st.session_state.model_initialized = True
                         st.success(message)
+
+                        # Carregar base fiscal automaticamente se NF-e Validator estiver disponível
+                        if NFE_VALIDATOR_AVAILABLE and st.session_state.fiscal_repository is None:
+                            with st.spinner("Carregando base de dados fiscal..."):
+                                try:
+                                    st.session_state.fiscal_repository = FiscalRepository(
+                                        use_local_csv=True,
+                                        use_ai_fallback=True
+                                    )
+                                    st.success("✅ Base fiscal carregada com todas as camadas!")
+                                except Exception as e:
+                                    st.error(f"❌ Erro ao carregar base fiscal: {e}")
+
                         st.rerun()
                     else:
                         st.error(message)
@@ -1646,22 +1659,9 @@ def main():
                 st.session_state.nfe_validated = False
                 st.session_state.nfe_results = None
 
-            # Load repository button
+            # Show status
             if st.session_state.fiscal_repository is None:
-                st.info("💡 **Todas as camadas de validação estão ativadas:**\n- 📄 CSV Local\n- 💾 SQLite\n- 🤖 Agente LLM (fallback)")
-
-                if st.button("📚 Carregar Base Fiscal", type="secondary"):
-                    with st.spinner("Carregando base de dados fiscal..."):
-                        try:
-                            # Todas as camadas ativadas por padrão
-                            st.session_state.fiscal_repository = FiscalRepository(
-                                use_local_csv=True,
-                                use_ai_fallback=True
-                            )
-                            st.success("✅ Base fiscal carregada com todas as camadas!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Erro ao carregar base: {e}")
+                st.info("💡 A base fiscal será carregada automaticamente ao inicializar o modelo")
             else:
                 st.success("✅ Base fiscal carregada")
 
