@@ -9,11 +9,16 @@ streamlit>=1.28.0
 pandas>=2.1.0
 numpy>=1.24.0
 
-# AI/ML - LangChain + Google Gemini 2.5
+# AI/ML - LangChain + Modelos de IA
 langchain>=0.1.0
 langchain-core>=0.1.0
+
+# Google Gemini
 langchain-google-genai>=1.0.0
 google-generativeai>=0.3.0
+
+# OpenAI e Grok (xAI) - ambos usam langchain-openai
+langchain-openai>=0.0.5
 
 # Utilities
 python-dateutil>=2.8.0

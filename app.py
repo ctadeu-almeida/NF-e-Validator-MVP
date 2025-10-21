@@ -1608,14 +1608,24 @@ def main():
         if grok_api_key:
             st.session_state.grok_api_key = grok_api_key
 
-        # Modelo padrão (por enquanto apenas Gemini é suportado)
-        model_option = "gemini"
-        api_key = gemini_api_key  # Usar Gemini como padrão
+        # Determinar qual API usar baseado nas chaves fornecidas
+        if gemini_api_key:
+            model_option = "gemini"
+            api_key = gemini_api_key
+        elif openai_api_key:
+            model_option = "openai"
+            api_key = openai_api_key
+        elif grok_api_key:
+            model_option = "grok"
+            api_key = grok_api_key
+        else:
+            model_option = None
+            api_key = None
 
         # Botão de inicialização
         if st.button("🚀 Inicializar Modelo", type="primary"):
-            if model_option == "gemini" and not api_key:
-                st.error("❌ Chave da API é obrigatória para Gemini")
+            if not api_key:
+                st.error("❌ Por favor, forneça pelo menos uma chave de API (Gemini, OpenAI ou Grok)")
             else:
                 with st.spinner(f"Inicializando {model_option.title()}..."):
                     success, agent, message = initialize_model(model_option, api_key)
@@ -1652,67 +1662,20 @@ def main():
 
         # NF-e Validator Settings (independente do EDA)
         if NFE_VALIDATOR_AVAILABLE:
-            st.markdown("---")
-            st.subheader("🧾 NF-e Validator")
-
             # Check if fiscal repository is loaded
             if 'fiscal_repository' not in st.session_state:
                 st.session_state.fiscal_repository = None
                 st.session_state.nfe_validated = False
                 st.session_state.nfe_results = None
 
-            # Show status
-            if st.session_state.fiscal_repository is None:
-                st.info("💡 A base fiscal será carregada automaticamente ao inicializar o modelo")
-            else:
-                st.success("✅ Base fiscal carregada")
+            # Show simple status
+            if st.session_state.fiscal_repository is not None:
+                st.markdown("---")
+                st.success("✅ Regras carregadas")
 
-                # Show repository layers status
-                try:
-                    layers_status = st.session_state.fiscal_repository.get_repository_layers_status()
-
-                    with st.expander("📊 Status das Camadas", expanded=False):
-                        st.metric("Camadas Ativas", f"{layers_status['total_camadas_ativas']}/{layers_status['camadas_disponiveis']}")
-
-                        for layer in layers_status['camadas_ativas']:
-                            st.success(f"✅ {layer}")
-
-                        # Detalhes CSV Local
-                        if layers_status['csv_local']['disponivel']:
-                            csv_stats = layers_status['csv_local']
-                            st.info(f"📄 CSV Local: {csv_stats['total_regras']} regras ({csv_stats['acucar_ncms']} açúcar + {csv_stats['insumos_ncms']} insumos)")
-
-                        # Detalhes SQLite
-                        if layers_status['sqlite']['disponivel']:
-                            st.info(f"💾 SQLite: {layers_status['sqlite']['total_ncm_rules']} NCMs cadastrados")
-                except Exception as e:
-                    st.warning(f"⚠️ Não foi possível obter estatísticas: {e}")
-
-                # Show repository stats (legacy)
-                try:
-                    stats = st.session_state.fiscal_repository.get_statistics()
-                    st.metric("Regras Carregadas", sum(stats.values()))
-                except:
-                    pass
-
-                # API Key for AI validation (optional, on-demand only)
-                st.markdown("**🤖 Agente IA (Opcional - Sob Demanda)**")
-
-                # Try to reuse Gemini API key if available
+                # Setup API key silently for AI validation
                 if st.session_state.model_initialized and st.session_state.eda_agent:
-                    ncm_api_key = st.session_state.eda_agent.api_key
-                    st.info("✅ Usando chave da API do Gemini EDA")
-                    st.session_state.ncm_api_key = ncm_api_key
-                else:
-                    ncm_api_key = st.text_input(
-                        "Google API Key (Gemini):",
-                        type="password",
-                        help="Necessário apenas para validação com IA (sob demanda). A validação local funciona sem API key.",
-                        key="ncm_api_key"
-                    )
-                    st.session_state.ncm_api_key = ncm_api_key
-
-                st.caption("💡 A validação inicial NÃO usa IA - apenas regras locais (rápido)")
+                    st.session_state.ncm_api_key = st.session_state.eda_agent.api_key
 
         # Sempre usar chat moderno
         if MODERN_CHAT_AVAILABLE:

@@ -29,16 +29,16 @@ class EDAAgent:
 
     def __init__(self, model_type: str = "gemini", api_key: str = None):
         """
-        Initialize the EDA Agent with Gemini AI model
+        Initialize the EDA Agent with AI model
 
-        IMPORTANTE: Apenas Gemini é suportado. Agentes são obrigatórios.
+        Modelos suportados: Gemini, OpenAI, Grok
 
         Args:
-            model_type (str): "gemini" - único modelo suportado
-            api_key (str): API key do Google (obrigatória)
+            model_type (str): "gemini", "openai" ou "grok"
+            api_key (str): API key correspondente (obrigatória)
         """
-        if model_type != "gemini":
-            raise ValueError("Apenas 'gemini' é suportado.")
+        if model_type not in ["gemini", "openai", "grok"]:
+            raise ValueError(f"Modelo '{model_type}' não é suportado. Use: gemini, openai ou grok")
 
         self.model_type = model_type
         self.api_key = api_key
@@ -61,8 +61,12 @@ class EDAAgent:
         # Initialize based on model type - APENAS AGENTES
         if model_type == "gemini" and api_key:
             self._init_gemini(api_key)
+        elif model_type == "openai" and api_key:
+            self._init_openai(api_key)
+        elif model_type == "grok" and api_key:
+            self._init_grok(api_key)
         else:
-            raise ValueError(f"Configuração inválida para {model_type}. API key do Gemini é obrigatória.")
+            raise ValueError(f"Configuração inválida para {model_type}. API key é obrigatória.")
 
         # SEMPRE inicializar agentes quando API estiver disponível
         if self.api_available:
@@ -128,6 +132,56 @@ class EDAAgent:
             print(f"❌ Falha ao inicializar Google Gemini: {e}")
             self.api_available = False
 
+    def _init_openai(self, api_key: str):
+        """Initialize OpenAI"""
+        try:
+            try:
+                from langchain_openai import ChatOpenAI
+            except ImportError:
+                from langchain.chat_models import ChatOpenAI
+
+            # Configurar OpenAI sem testar (igual ao Gemini)
+            print(f"🔄 Configurando OpenAI...")
+            self.llm = ChatOpenAI(
+                temperature=0.1,
+                model='gpt-4o-mini',  # Usar modelo padrão
+                openai_api_key=api_key,
+                max_tokens=4096,
+                request_timeout=120
+            )
+
+            self.api_available = True
+            print(f"✅ OpenAI configurado com sucesso")
+
+        except Exception as e:
+            print(f"❌ Falha ao configurar OpenAI: {e}")
+            self.api_available = False
+
+    def _init_grok(self, api_key: str):
+        """Initialize Grok (xAI)"""
+        try:
+            try:
+                from langchain_openai import ChatOpenAI
+            except ImportError:
+                from langchain.chat_models import ChatOpenAI
+
+            # Configurar Grok sem testar (igual ao Gemini)
+            print(f"🔄 Configurando Grok...")
+            self.llm = ChatOpenAI(
+                temperature=0.1,
+                model="grok-beta",
+                openai_api_key=api_key,
+                base_url="https://api.x.ai/v1",  # Endpoint do Grok
+                max_tokens=4096,
+                request_timeout=120
+            )
+
+            self.api_available = True
+            print(f"✅ Grok configurado com sucesso")
+
+        except Exception as e:
+            print(f"❌ Falha ao configurar Grok: {e}")
+            self.api_available = False
 
     def load_data(self, file_path: str) -> bool:
         """
