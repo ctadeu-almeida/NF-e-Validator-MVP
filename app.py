@@ -1770,34 +1770,54 @@ def main():
             # Informações sobre os modelos disponíveis com agentes
             st.subheader("🤖 Modelos de IA Disponíveis")
 
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
 
             with col1:
                 st.markdown("""
-                ### 🧠 Google Gemini + Agentes
-                **🌐 IA Avançada com Orquestração**
+                ### 🧠 Google Gemini
+                **🌐 IA Avançada com Agentes**
                 - 🤖 **Agentes especializados** para análise
-                - 🧠 **LLM Gemini** para consultas inteligentes
+                - 🧠 **LLM Gemini 2.5** (Flash/Pro)
                 - 📊 **Geração automática** de código Python
                 - 🔍 **Análise contextual** dos dados
-                - 📝 **Respostas detalhadas** e insights profundos
                 - ⚠️ Requer API key do Google
                 """)
 
             with col2:
                 st.markdown("""
-                ### 🔧 Recursos Avançados
-                **⚡ Funcionalidades Premium**
-                - 🧠 **Memória contextual** entre perguntas
-                - 🔄 **Pipeline automático** de dados
-                - 📊 **Visualizações dinâmicas**
-                - 🎯 **Análises especializadas**
-                - 📝 **Relatórios detalhados**
-                - ✨ **Clean Architecture** enterprise
+                ### 🔷 OpenAI GPT
+                **💡 GPT-4o Mini / GPT-4**
+                - 🤖 **Agentes especializados** para análise
+                - 🧠 **GPT-4o-mini** (econômico e rápido)
+                - 📊 **Geração automática** de código Python
+                - 🔍 **Análise contextual** dos dados
+                - ⚠️ Requer API key da OpenAI
+                """)
+
+            with col3:
+                st.markdown("""
+                ### ⚡ Grok (xAI)
+                **🚀 Grok Beta**
+                - 🤖 **Agentes especializados** para análise
+                - 🧠 **Grok Beta** (xAI)
+                - 📊 **Geração automática** de código Python
+                - 🔍 **Análise contextual** dos dados
+                - ⚠️ Requer API key do xAI
                 """)
 
             st.markdown("---")
-            st.info("💡 **Modelo ativo**: **Gemini** com agentes para orquestração inteligente de análises complexas!")
+
+            # Mostrar modelo ativo
+            if st.session_state.model_initialized and st.session_state.selected_model:
+                model_names = {
+                    "gemini": "Google Gemini",
+                    "openai": "OpenAI GPT",
+                    "grok": "Grok (xAI)"
+                }
+                active_model = model_names.get(st.session_state.selected_model, st.session_state.selected_model)
+                st.info(f"💡 **Modelo ativo**: **{active_model}** com agentes para orquestração inteligente de análises!")
+            else:
+                st.info("💡 **Escolha uma API**: Configure uma chave de API (Gemini, OpenAI ou Grok) e clique em 'Inicializar Modelo'")
 
         elif st.session_state.current_data is None:
             st.info("👆 Faça upload de um arquivo CSV na barra lateral para começar a análise.")
